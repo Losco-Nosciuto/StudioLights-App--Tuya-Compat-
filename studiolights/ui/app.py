@@ -14,11 +14,14 @@ from PIL import Image
 
 from ..config import ConfigError, LightStore, SceneStore, project_root
 from ..controller import LightController
+from ..flow import FlowRunner
 from ..models import (
     ERROR_AUTH,
     ERROR_OFFLINE,
+    SCENE_FLOW,
     SCENE_GLOBAL,
     SCENE_SNAPSHOT,
+    FlowConfig,
     LightDevice,
     LightState,
     OperationReport,
@@ -26,9 +29,10 @@ from ..models import (
     utc_now_iso,
 )
 from ..theme import COLORS, font, mono, setup_appearance
-from ..util import format_ms, hex_to_rgb, kelvin_from_temp, temp_preview_hex
+from ..util import format_ms, hex_to_rgb, kelvin_from_temp, rgb_to_hex, temp_preview_hex
 from .colorpicker import ColorPicker
 from .dialogs import (
+    ColorPickerDialog,
     ConfirmDialog,
     SceneDialog,
     SettingsWindow,
@@ -48,6 +52,26 @@ MODE_LABELS = {
     "Bianco": ("APPLICA BIANCO", "white"),
     "Colore": ("APPLICA COLORE", "colour"),
     "Scena HW": ("ATTIVA SCENA HW", "scene"),
+    "Flow": ("AVVIA FLOW", "flow"),
+}
+
+FLOW_PRESETS: dict[str, list[str]] = {
+    "Cyberpunk": [
+        "#00e5ff", "#7b2cff", "#ff2bd6", "#2200ff",
+        "#00ffd5", "#ff00a8", "#4d00ff", "#00b3ff",
+    ],
+    "Tramonto": [
+        "#ff3b30", "#ff7a18", "#ffb347", "#ffd166",
+        "#ff8fb1", "#d94f8a", "#7b2cbf", "#3a0ca3",
+    ],
+    "Foresta": [
+        "#0b3d2e", "#1f7a4d", "#3ddc97", "#a7f3d0",
+        "#7cb342", "#2e7d32", "#134e4a", "#0f766e",
+    ],
+    "Neon": [
+        "#ff00ff", "#00ffff", "#ffff00", "#ff0000",
+        "#00ff00", "#0000ff", "#ff8000", "#8000ff",
+    ],
 }
 
 PRESETS: list[tuple[str, str]] = [
@@ -88,6 +112,10 @@ class StudioLightsApp(ctk.CTk):
 
         self._task_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="ui-task")
         self.controller = LightController()
+        self.flow_runner = FlowRunner(self.controller)
+        self.flow_config = FlowConfig()
+        self._flow_running = False
+        self._flow_devices: list[LightDevice] = []
 
         self.store = LightStore(self.root_dir)
         self.scene_store = SceneStore(self.root_dir)
@@ -516,7 +544,7 @@ class StudioLightsApp(ctk.CTk):
 
         self.mode_switch = ctk.CTkSegmentedButton(
             panel,
-            values=["Bianco", "Colore", "Scena HW"],
+            values=["Bianco", "Colore", "Scena HW", "Flow"],
             height=34,
             corner_radius=8,
             border_width=2,
@@ -542,7 +570,13 @@ class StudioLightsApp(ctk.CTk):
         white = self._build_white_tab()
         colour = self._build_colour_tab()
         hardware = self._build_hardware_tab()
-        for name, frame in (("Bianco", white), ("Colore", colour), ("Scena HW", hardware)):
+        flow = self._build_flow_tab()
+        for name, frame in (
+            ("Bianco", white),
+            ("Colore", colour),
+            ("Scena HW", hardware),
+            ("Flow", flow),
+        ):
             frame.grid(row=0, column=0, sticky="nsew")
             frame.grid_remove()
             self.tab_frames[name] = frame
@@ -911,6 +945,254 @@ class StudioLightsApp(ctk.CTk):
         ).pack(fill="x", padx=10, pady=8)
         return tab
 
+    def _build_flow_tab(self) -> ctk.CTkFrame:
+        tab = ctk.CTkFrame(self.content, fg_color="transparent")
+        tab.grid_columnconfigure(0, weight=1)
+
+        card = ctk.CTkFrame(
+            tab,
+            fg_color=COLORS["card"],
+            corner_radius=12,
+            border_width=1,
+            border_color=COLORS["border"],
+        )
+        card.grid(row=0, column=0, sticky="new")
+        card.grid_columnconfigure(0, weight=1)
+
+        head = ctk.CTkFrame(card, fg_color="transparent")
+        head.grid(row=0, column=0, sticky="ew", padx=16, pady=(14, 0))
+        head.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            head,
+            text="FADE INFINITO",
+            font=font(9, "bold"),
+            text_color=COLORS["dim"],
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(
+            head,
+            text="8 COLORI · LOOP",
+            font=font(8, "bold"),
+            text_color=COLORS["accent"],
+            fg_color=COLORS["accent_dark"],
+            corner_radius=6,
+            width=92,
+            height=20,
+        ).grid(row=0, column=1, sticky="e")
+
+        ctk.CTkLabel(
+            card,
+            text=(
+                "Il fade è generato dal PC e inviato in tempo reale. "
+                "La fluidità dipende dal firmware della lampadina."
+            ),
+            font=font(9),
+            text_color=COLORS["muted"],
+            anchor="w",
+            justify="left",
+            wraplength=350,
+        ).grid(row=1, column=0, sticky="w", padx=16, pady=(2, 10))
+
+        palette_head = ctk.CTkFrame(card, fg_color="transparent")
+        palette_head.grid(row=2, column=0, sticky="ew", padx=16)
+        palette_head.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            palette_head,
+            text="PALETTE",
+            font=font(9, "bold"),
+            text_color=COLORS["dim"],
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(
+            palette_head,
+            text="clicca un colore per modificarlo",
+            font=font(8),
+            text_color=COLORS["dim"],
+            anchor="e",
+        ).grid(row=0, column=1, sticky="e")
+
+        swatch_frame = ctk.CTkFrame(card, fg_color="transparent")
+        swatch_frame.grid(row=3, column=0, sticky="w", padx=16, pady=(5, 8))
+        self.flow_swatches: list[ctk.CTkButton] = []
+        for index in range(8):
+            color = self.flow_config.palette[index]
+            button = ctk.CTkButton(
+                swatch_frame,
+                text="",
+                width=28,
+                height=28,
+                corner_radius=8,
+                fg_color=color,
+                hover_color=color,
+                border_width=1,
+                border_color=COLORS["border_light"],
+                command=lambda selected=index: self._edit_palette_color(selected),
+            )
+            button.grid(row=0, column=index, padx=(0, 5))
+            self.flow_swatches.append(button)
+
+        presets = ctk.CTkFrame(card, fg_color="transparent")
+        presets.grid(row=4, column=0, sticky="ew", padx=16)
+        for index, name in enumerate(FLOW_PRESETS):
+            ctk.CTkButton(
+                presets,
+                text=name,
+                width=72,
+                height=23,
+                corner_radius=6,
+                fg_color=COLORS["panel_alt"],
+                border_width=1,
+                border_color=COLORS["border"],
+                hover_color=COLORS["card_hover"],
+                text_color=COLORS["muted"],
+                font=font(8),
+                command=lambda value=name: self._apply_flow_preset(value),
+            ).grid(row=0, column=index, padx=(0, 5))
+
+        speed_head = ctk.CTkFrame(card, fg_color="transparent")
+        speed_head.grid(row=5, column=0, sticky="ew", padx=16, pady=(12, 0))
+        speed_head.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            speed_head,
+            text="VELOCITÀ · SECONDI PER TRANSAZIONE",
+            font=font(9, "bold"),
+            text_color=COLORS["dim"],
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+        self.flow_speed_label = ctk.CTkLabel(
+            speed_head,
+            text="2.5 s",
+            font=font(15, "bold"),
+            text_color=COLORS["text"],
+            anchor="e",
+        )
+        self.flow_speed_label.grid(row=0, column=1, sticky="e")
+
+        self.flow_speed_slider = ctk.CTkSlider(
+            card,
+            from_=0.5,
+            to=5.0,
+            number_of_steps=45,
+            height=16,
+            fg_color=COLORS["border_light"],
+            progress_color=COLORS["accent"],
+            button_color=COLORS["accent"],
+            button_hover_color=COLORS["accent_hover"],
+            command=self._on_flow_speed,
+        )
+        self.flow_speed_slider.grid(row=6, column=0, sticky="ew", padx=16, pady=(4, 10))
+        self.flow_speed_slider.set(self.flow_config.segment_seconds)
+
+        options = ctk.CTkFrame(card, fg_color="transparent")
+        options.grid(row=7, column=0, sticky="ew", padx=16)
+        options.grid_columnconfigure(0, weight=1)
+
+        fps_box = ctk.CTkFrame(options, fg_color="transparent")
+        fps_box.grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(
+            fps_box,
+            text="FPS",
+            font=font(8, "bold"),
+            text_color=COLORS["dim"],
+            anchor="w",
+        ).pack(side="left", padx=(0, 6))
+        self.flow_fps_switch = ctk.CTkSegmentedButton(
+            fps_box,
+            values=["6", "10", "15"],
+            height=26,
+            corner_radius=6,
+            border_width=2,
+            fg_color=COLORS["panel_alt"],
+            selected_color=COLORS["accent"],
+            selected_hover_color=COLORS["accent_hover"],
+            unselected_color=COLORS["panel_alt"],
+            unselected_hover_color=COLORS["card_hover"],
+            text_color=COLORS["text"],
+            font=font(9, "bold"),
+            command=self._on_flow_option,
+        )
+        self.flow_fps_switch.pack(side="left")
+        self.flow_fps_switch.set(str(self.flow_config.fps))
+
+        self.flow_phase_var = tk.BooleanVar(value=self.flow_config.phase_offset)
+        self.flow_phase_switch = ctk.CTkSwitch(
+            options,
+            text="Sfasamento luci",
+            width=130,
+            switch_width=32,
+            switch_height=16,
+            fg_color=COLORS["border_light"],
+            progress_color=COLORS["accent"],
+            button_color=COLORS["text"],
+            button_hover_color=COLORS["text"],
+            text_color=COLORS["muted"],
+            font=font(8),
+            variable=self.flow_phase_var,
+            command=self._on_flow_option,
+        )
+        self.flow_phase_switch.grid(row=0, column=1, sticky="e")
+
+        bright_head = ctk.CTkFrame(card, fg_color="transparent")
+        bright_head.grid(row=8, column=0, sticky="ew", padx=16, pady=(10, 0))
+        bright_head.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            bright_head,
+            text="LUMINOSITÀ",
+            font=font(9, "bold"),
+            text_color=COLORS["dim"],
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+        self.flow_brightness_value = ctk.CTkLabel(
+            bright_head,
+            text=f"{int(round(self.ui_brightness))}%",
+            font=font(14, "bold"),
+            text_color=COLORS["text"],
+            anchor="e",
+        )
+        self.flow_brightness_value.grid(row=0, column=1, sticky="e")
+
+        self.flow_slider = ctk.CTkSlider(
+            card,
+            from_=1,
+            to=100,
+            number_of_steps=99,
+            height=16,
+            fg_color=COLORS["border_light"],
+            progress_color=COLORS["accent"],
+            button_color=COLORS["accent"],
+            button_hover_color=COLORS["accent_hover"],
+            command=lambda value: self._on_brightness_change(value, "flow"),
+        )
+        self.flow_slider.grid(row=9, column=0, sticky="ew", padx=16, pady=(4, 8))
+        self.flow_slider.set(self.ui_brightness)
+
+        footer = ctk.CTkFrame(card, fg_color="transparent")
+        footer.grid(row=10, column=0, sticky="ew", padx=16, pady=(0, 14))
+        footer.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            footer,
+            text="Usa AVVIA FLOW in basso. Lo stop è sempre in barra di stato.",
+            font=font(8),
+            text_color=COLORS["dim"],
+            anchor="w",
+            wraplength=230,
+        ).grid(row=0, column=0, sticky="w")
+        ctk.CTkButton(
+            footer,
+            text="Salva scena Flow",
+            width=126,
+            height=30,
+            corner_radius=7,
+            fg_color="transparent",
+            border_width=1,
+            border_color=COLORS["border_light"],
+            hover_color=COLORS["card_hover"],
+            text_color=COLORS["accent"],
+            font=font(9, "bold"),
+            command=lambda: self.new_scene(SCENE_FLOW),
+        ).grid(row=0, column=1, sticky="e")
+        return tab
+
     # ------------------------------------------------------------------ scenes
     def _build_scenes_panel(self) -> None:
         panel = ctk.CTkFrame(
@@ -1012,6 +1294,21 @@ class StudioLightsApp(ctk.CTk):
         )
         self.status_label.grid(row=0, column=1, sticky="w")
 
+        self.flow_stop_button = ctk.CTkButton(
+            bar,
+            text="■ STOP FLOW",
+            width=102,
+            height=24,
+            corner_radius=6,
+            fg_color=COLORS["danger_dark"],
+            hover_color="#4d1d29",
+            text_color=COLORS["danger"],
+            font=font(9, "bold"),
+            command=self.stop_flow,
+        )
+        self.flow_stop_button.grid(row=0, column=2, sticky="e", padx=(8, 10))
+        self.flow_stop_button.grid_remove()
+
         self.latency_label = ctk.CTkLabel(
             bar,
             text="",
@@ -1019,7 +1316,7 @@ class StudioLightsApp(ctk.CTk):
             text_color=COLORS["dim"],
             anchor="e",
         )
-        self.latency_label.grid(row=0, column=2, sticky="e", padx=(10, 2))
+        self.latency_label.grid(row=0, column=3, sticky="e", padx=(0, 2))
 
     # ==================================================================== data
     def _startup(self) -> None:
@@ -1116,9 +1413,16 @@ class StudioLightsApp(ctk.CTk):
         if self._syncing:
             return
         self._syncing = True
-        other = self.color_slider if source == "white" else self.white_slider
-        other.set(self.ui_brightness)
+        for name, slider in (
+            ("white", self.white_slider),
+            ("colour", self.color_slider),
+            ("flow", self.flow_slider),
+        ):
+            if name != source:
+                slider.set(self.ui_brightness)
         self._syncing = False
+        if self._flow_running:
+            self.flow_runner.update_config(self._flow_config_from_ui())
 
     def _on_temp_change(self, value: float) -> None:
         self.ui_temp = max(0.0, min(100.0, float(value)))
@@ -1132,6 +1436,8 @@ class StudioLightsApp(ctk.CTk):
         temp = int(round(self.ui_temp))
         self.white_brightness_value.configure(text=f"{brightness}%")
         self.color_brightness_value.configure(text=f"{brightness}%")
+        if hasattr(self, "flow_brightness_value"):
+            self.flow_brightness_value.configure(text=f"{brightness}%")
         self.temp_value.configure(text=f"{kelvin_from_temp(temp)} K")
         self.white_preview.configure(fg_color=temp_preview_hex(temp, brightness))
 
@@ -1142,14 +1448,217 @@ class StudioLightsApp(ctk.CTk):
                 frame.grid()
             else:
                 frame.grid_remove()
-        label, _mode = MODE_LABELS.get(self._mode, MODE_LABELS["Bianco"])
-        if not self._busy:
-            self.apply_button.configure(text=label)
+        self._update_apply_button_label()
+        self._update_selection_ui()
+
+    def _update_apply_button_label(self) -> None:
+        if not hasattr(self, "apply_button"):
+            return
+        if self._busy:
+            text = "INVIO…"
+        elif self._mode == "Flow":
+            text = "FERMA FLOW" if self._flow_running else "AVVIA FLOW"
+        else:
+            text = MODE_LABELS.get(self._mode, MODE_LABELS["Bianco"])[0]
+        self.apply_button.configure(text=text)
 
     def _apply_preset(self, hex_value: str) -> None:
         rgb = hex_to_rgb(hex_value)
         if rgb:
             self.picker.set_rgb(rgb, emit=True)
+
+    # ================================================================== flow UI
+    def _flow_config_from_ui(self) -> FlowConfig:
+        try:
+            fps = int(self.flow_fps_switch.get())
+        except (ValueError, AttributeError):
+            fps = self.flow_config.fps
+        try:
+            speed = float(self.flow_speed_slider.get())
+        except (ValueError, AttributeError):
+            speed = self.flow_config.segment_seconds
+        return FlowConfig(
+            palette=list(self.flow_config.palette),
+            segment_seconds=speed,
+            fps=fps,
+            phase_offset=bool(self.flow_phase_var.get()),
+            brightness=int(round(self.ui_brightness)),
+        )
+
+    def _push_flow_config(self) -> None:
+        if self._flow_running:
+            self.flow_runner.update_config(self._flow_config_from_ui())
+
+    def _on_flow_speed(self, value: float) -> None:
+        self.flow_speed_label.configure(text=f"{float(value):.1f} s")
+        self.flow_config = self._flow_config_from_ui()
+        self._push_flow_config()
+
+    def _on_flow_option(self, *_args: Any) -> None:
+        self.flow_config = self._flow_config_from_ui()
+        self._push_flow_config()
+
+    def _refresh_flow_swatches(self) -> None:
+        for index, button in enumerate(self.flow_swatches):
+            color = self.flow_config.palette[index]
+            button.configure(fg_color=color, hover_color=color)
+
+    def _edit_palette_color(self, index: int) -> None:
+        current = hex_to_rgb(self.flow_config.palette[index]) or (255, 255, 255)
+        result = ColorPickerDialog.ask(
+            self, f"Colore {index + 1} della palette", current
+        )
+        if result is None:
+            return
+        base = self._flow_config_from_ui()
+        palette = list(base.palette)
+        palette[index] = rgb_to_hex(result)
+        self.flow_config = FlowConfig(
+            palette=palette,
+            segment_seconds=base.segment_seconds,
+            fps=base.fps,
+            phase_offset=base.phase_offset,
+            brightness=base.brightness,
+        )
+        self._refresh_flow_swatches()
+        self._push_flow_config()
+
+    def _apply_flow_preset(self, name: str) -> None:
+        palette = FLOW_PRESETS.get(name)
+        if palette is None:
+            return
+        base = self._flow_config_from_ui()
+        self.flow_config = FlowConfig(
+            palette=list(palette),
+            segment_seconds=base.segment_seconds,
+            fps=base.fps,
+            phase_offset=base.phase_offset,
+            brightness=base.brightness,
+        )
+        self._refresh_flow_swatches()
+        self._push_flow_config()
+        self._set_status(f"Palette «{name}» caricata.", "muted")
+
+    def _sync_flow_ui_from_config(
+        self, config: FlowConfig, *, sync_brightness: bool = True
+    ) -> None:
+        self.flow_config = config.copy()
+        if sync_brightness:
+            self.ui_brightness = float(self.flow_config.brightness)
+        self._syncing = True
+        self.flow_speed_slider.set(self.flow_config.segment_seconds)
+        self.flow_speed_label.configure(text=f"{self.flow_config.segment_seconds:.1f} s")
+        fps_value = str(self.flow_config.fps)
+        if fps_value not in ("6", "10", "15"):
+            fps_value = "10"
+        self.flow_fps_switch.set(fps_value)
+        self.flow_phase_var.set(self.flow_config.phase_offset)
+        if sync_brightness:
+            self.white_slider.set(self.ui_brightness)
+            self.color_slider.set(self.ui_brightness)
+            self.flow_slider.set(self.ui_brightness)
+        self._syncing = False
+        self._refresh_flow_swatches()
+        self._update_editor_labels()
+        self._push_flow_config()
+
+    def _toggle_flow(self) -> None:
+        if self._flow_running:
+            self.stop_flow()
+            return
+        if self._busy:
+            self._set_status("Attendi la fine del comando in corso.", "warning")
+            return
+        selected = [
+            device for device in self.devices if device.id in set(self._selected_ids())
+        ]
+        if not selected:
+            self._set_status("Seleziona almeno una luce per avviare il flow.", "warning")
+            return
+
+        config = self._flow_config_from_ui()
+        self.flow_config = config
+        targets: dict[str, LightState] = {}
+        for index, device in enumerate(selected):
+            position = 0.0
+            if config.phase_offset and len(selected) > 1:
+                position = index / len(selected)
+            targets[device.id] = LightState(
+                power=True,
+                mode="colour",
+                brightness=config.brightness,
+                rgb=config.colour_at(position),
+            )
+
+        self._flow_devices = selected
+        self._bulk_apply(
+            targets,
+            "Flow",
+            after_success=lambda report: self._begin_flow(report, selected, config),
+        )
+
+    def _begin_flow(
+        self,
+        report: OperationReport,
+        devices: list[LightDevice],
+        config: FlowConfig,
+    ) -> None:
+        successful = {result.device_id for result in report.results if result.ok}
+        active = [device for device in devices if device.id in successful]
+        if not active:
+            self._set_status("Flow non avviato: nessuna luce raggiungibile.", "danger")
+            return
+
+        self.flow_runner.start(active, config)
+        self._flow_running = True
+        self._flow_devices = active
+        self._update_flow_ui_running()
+        self._update_selection_ui()
+        failures = len(devices) - len(active)
+        message = f"FLOW attivo · {len(active)} luci · {config.summary}"
+        if failures:
+            message += f" · {failures} non raggiungibili"
+        self._set_status(message, "success" if not failures else "warning")
+
+    def stop_flow(self, announce: bool = True) -> None:
+        if not self._flow_running:
+            return
+        last_colors = self.flow_runner.stop()
+        failed = self.flow_runner.failed_ids
+        self._flow_running = False
+        self._flow_devices = []
+        for device_id in failed:
+            self.health[device_id] = False
+
+        for device_id, rgb in last_colors.items():
+            state = self.states.get(device_id)
+            if state is None:
+                continue
+            self.states[device_id] = state.copy(
+                power=True,
+                mode="colour",
+                rgb=rgb,
+                brightness=int(round(self.ui_brightness)),
+            )
+            row = self.rows.get(device_id)
+            if row is not None:
+                row.set_state(self.states[device_id], self.health.get(device_id))
+
+        self._update_flow_ui_running()
+        self._update_selection_ui()
+        self._schedule_save()
+        if announce:
+            message = "■ Flow fermato · ultima tinta mantenuta"
+            if failed:
+                message += f" · {len(failed)} luci offline"
+            self._set_status(message, "warning" if failed else "muted")
+
+    def _update_flow_ui_running(self) -> None:
+        if self._flow_running:
+            self.flow_stop_button.grid()
+        else:
+            self.flow_stop_button.grid_remove()
+        self._update_apply_button_label()
 
     # ================================================================ commands
     def _set_status(self, text: str, level: str = "muted") -> None:
@@ -1169,7 +1678,6 @@ class StudioLightsApp(ctk.CTk):
             self.apply_button.configure(text="INVIO…")
         else:
             self._switch_mode(self._mode)
-
     def refresh_states(self, silent: bool = False) -> None:
         if self._busy or self._refresh_running or self._closing:
             return
@@ -1299,10 +1807,15 @@ class StudioLightsApp(ctk.CTk):
         return True
 
     def apply_manual(self) -> None:
+        if self._mode == "Flow":
+            self._toggle_flow()
+            return
         selected = self._selected_ids()
         if not selected:
             self._set_status("Seleziona almeno una luce con le checkbox.", "warning")
             return
+        if self._flow_running:
+            self.stop_flow(announce=False)
         state = self._manual_state()
         action = {
             "Bianco": "Bianco applicato",
@@ -1316,6 +1829,8 @@ class StudioLightsApp(ctk.CTk):
         if not selected:
             self._set_status("Seleziona almeno una luce.", "warning")
             return
+        if self._flow_running:
+            self.stop_flow(announce=False)
         targets = {
             device_id: self.states.get(device_id, LightState()).copy(power=power)
             for device_id in selected
@@ -1326,6 +1841,8 @@ class StudioLightsApp(ctk.CTk):
         device = self._find_device(device_id)
         if device is None:
             return
+        if self._flow_running:
+            self.stop_flow(announce=False)
         old_state = self.states.get(device_id, LightState())
         new_state = old_state.copy(power=power)
         self.states[device_id] = new_state
@@ -1362,18 +1879,20 @@ class StudioLightsApp(ctk.CTk):
         self.submit(job, done, failed)
 
     # ================================================================== scenes
-    def new_scene(self) -> None:
+    def new_scene(self, default_type: str = SCENE_GLOBAL) -> None:
         selected_names = self._selected_names()
         dialog = SceneDialog(
             self,
             selected_names=selected_names,
+            existing_type=default_type,
             global_summary=self._manual_state().summary(),
+            flow_summary=self._flow_config_from_ui().summary,
         )
         dialog.wait_window()
         if not dialog.result_name:
             return
         name = dialog.result_name
-        scene_type = dialog.result_type or SCENE_GLOBAL
+        scene_type = dialog.result_type or default_type
         existing = self._find_scene_by_name(name)
         if existing is not None:
             if not ConfirmDialog.ask(
@@ -1398,10 +1917,16 @@ class StudioLightsApp(ctk.CTk):
         scene.type = scene_type
         scene.demo = False
         scene.updated_at = utc_now_iso()
-        if scene_type == SCENE_GLOBAL:
+        if scene_type == SCENE_FLOW:
+            scene.flow = self._flow_config_from_ui().copy()
+            scene.state = None
+            scene.lights = {}
+        elif scene_type == SCENE_GLOBAL:
+            scene.flow = None
             scene.state = self._manual_state()
             scene.lights = {}
         else:
+            scene.flow = None
             scene.lights = {
                 device_id: self.states.get(device_id, LightState()).copy()
                 for device_id in selected
@@ -1415,11 +1940,16 @@ class StudioLightsApp(ctk.CTk):
         self._set_status(f"✓ Scena «{scene.name}» salvata.", "success")
 
     def overwrite_scene(self, scene: Scene) -> None:
+        if scene.is_flow:
+            detail = "palette e velocità del tab Flow"
+        elif scene.is_global:
+            detail = "controlli manuali"
+        else:
+            detail = "luci selezionate"
         if not ConfirmDialog.ask(
             self,
             "Sovrascrivere la scena?",
-            f"«{scene.name}» verrà aggiornata con lo stato attuale "
-            f"({'controlli manuali' if scene.is_global else 'luci selezionate'}).",
+            f"«{scene.name}» verrà aggiornata con {detail}.",
             confirm="Sovrascrivi",
         ):
             return
@@ -1480,6 +2010,25 @@ class StudioLightsApp(ctk.CTk):
         if not self.devices:
             self._set_status("Nessuna luce configurata.", "warning")
             return
+
+        if scene.is_flow:
+            selected = self._selected_ids()
+            if not selected:
+                self._set_status(
+                    "Seleziona le luci su cui avviare il Flow.", "warning"
+                )
+                return
+            if self._flow_running:
+                self.stop_flow(announce=False)
+            self.flow_config = (scene.flow or FlowConfig()).copy()
+            self._sync_flow_ui_from_config(self.flow_config)
+            self.mode_switch.set("Flow")
+            self._switch_mode("Flow")
+            self._toggle_flow()
+            return
+
+        if self._flow_running:
+            self.stop_flow(announce=False)
 
         action = f"Scena «{scene.name}»"
         if scene.is_global:
@@ -1613,6 +2162,8 @@ class StudioLightsApp(ctk.CTk):
         return len(imported), warnings
 
     def _after_config_change(self) -> None:
+        if self._flow_running:
+            self.stop_flow(announce=False)
         self._save_now()
         self.controller.sync_devices(self.devices)
         self._rebuild_light_rows()
@@ -1886,7 +2437,17 @@ class StudioLightsApp(ctk.CTk):
         if not hasattr(self, "apply_selection_label"):
             return
         count = len(self._selected_ids())
-        if count:
+        if self._mode == "Flow":
+            if self._flow_running:
+                text = "Flow attivo · usa STOP FLOW in basso a destra"
+                color = COLORS["success"]
+            elif count:
+                text = f"Avvia il flow su {count} {'luce selezionata' if count == 1 else 'luci selezionate'}"
+                color = COLORS["muted"]
+            else:
+                text = "Seleziona le luci per avviare il flow"
+                color = COLORS["warning"]
+        elif count:
             text = f"Applica a {count} {'luce selezionata' if count == 1 else 'luci selezionate'}"
             color = COLORS["muted"]
         else:
@@ -1920,6 +2481,8 @@ class StudioLightsApp(ctk.CTk):
     def _on_close(self) -> None:
         if self._closing:
             return
+        if self._flow_running:
+            self.stop_flow(announce=False)
         self._closing = True
         self._save_now()
         try:

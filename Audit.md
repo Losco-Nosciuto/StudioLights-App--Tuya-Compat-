@@ -1,11 +1,12 @@
-# Audit tecnico — Studio Lights 1.0.0
+# Audit tecnico — Studio Lights 1.1.0
 
 **Data:** 6 novembre 2026
 **Ambiente di sviluppo:** Windows 11, Python 3.12.10, Tk 8.6
 **Librerie verificate:** tinytuya **1.20.0**, customtkinter **6.0.0**, Pillow **13.0.0**
 **Stato:** implementazione completa, test automatici e smoke test GUI superati.
-**Hardware:** nessuna lampadina Tuya fisica disponibile durante lo sviluppo; vedi
-"Rischi residui" e "Test sul campo".
+**Hardware:** test automatici e GUI senza lampadine; durante il collaudo reale l'utente ha
+collegato tre lampadine A60 RGB+CW e importato le Local Key. Il comportamento del Flow
+sul firmware reale (fluidità e fps sostenibili) resta da tarare.
 
 ---
 
@@ -15,8 +16,9 @@ Applicazione desktop per controllare in LAN lampadine Tuya / Smart Life, con:
 
 - selezione multipla tramite checkbox;
 - bianco (luminosità + temperatura), colore RGB, scene hardware;
+- fade infinito **Flow** tra 8 colori, con velocità e sfasamento;
 - invio parallelo e atomico per luce;
-- scene globali e snapshot multi-luce salvabili da GUI;
+- scene globali, snapshot multi-luce e scene Flow salvabili da GUI;
 - gestione dispositivi e riallineamento IP;
 - robustezza contro luci offline;
 - persistenza locale e avvio rapido.
@@ -44,10 +46,12 @@ sincronizzazione tra PC, scenari fuori dalla LAN, supporto a prese/termostati.
 | Scene hardware Tuya | `set_scene`, tab `Scena HW` | revisione API + unit test indiretto |
 | Scene globali | `Scene(type="global")` + `_store_scene` | test GUI/persistenza |
 | Snapshot multi-luce | `Scene(type="snapshot")` + `lights` | test GUI + persistenza |
+| Flow 8 colori, fade infinito, 0.5–5 s | `flow.py`, `FlowRunner`, tab Flow | 2 test motore + test GUI start/stop |
+| Scena Flow salvabile | `Scene(type="flow")` + `FlowConfig` | round-trip + GUI |
 | Elimina / sovrascrivi scena | menu card + `delete_scene` / `overwrite_scene` | codice + dialogo conferma |
 | Timeout 1.5 s, retry 1 | `LightController.__init__`, `_get_bulb` | ispezione + test offline (~1.5 s) |
 | Barra stato / offline | `_finish_report`, `_update_online_chip` | smoke test con 3 luci offline |
-| Scene demo 5–6 | `defaults.demo_scenes` (6) | test su seed |
+| Scene demo 5–6 | `defaults.demo_scenes` (7, inclusa Flow) | test su seed |
 | README / Audit / launcher | questo file, `README.md`, `run.bat`, `run.sh` | revisione |
 | Versioning Git | repository con commit incrementali | log Git |
 
@@ -62,6 +66,7 @@ main.py
        ├─ ui/colorpicker.py
        ├─ ui/dialogs.py   Settings / editor / scene / conferme
        ├─ config.py       LightStore / SceneStore (JSON atomico)
+       ├─ flow.py         FlowRunner (thread, un frame in volo per luce)
        └─ controller.py   LightController
              ├─ ThreadPoolExecutor (32)
              ├─ una Lock per device
@@ -97,6 +102,29 @@ DPS dopo il rilevamento:
 
 Questa scelta è documentata nel codice (`build_dps`) ed è coperta da test.
 
+### Flow: fade generato lato host
+
+Tuya non espone un comando "fade tra N secondi". Il Flow quindi:
+
+- interpola la palette sul **monotonic clock** (non sul numero di frame), così la velocità
+  resta corretta anche se un frame salta;
+- usa HSV con percorso di hue più breve per colori saturi, RGB lineare per bianchi/grigi;
+- invia solo i DP **colore + luminosità** per frame; switch e mode vengono impostati una
+  volta dal comando iniziale atomico;
+- mantiene **un solo frame in volo per lampadina**: se una luce è lenta/offline, le altre
+  continuano e la luce lenta viene rimossa dal flow dopo un errore definitivo;
+- aspetta l'ACK di ogni frame (`set_multiple_values`), evitando risposte non lette che
+  desincronizzerebbero la socket persistente;
+- applica uno **sfasamento** opzionale `i / n` alla posizione della palette, per avere
+  colori diversi simultanei sulle luci dello studio;
+- si ferma con l'evento di stop, con il pulsante nella barra di stato o quando si applica
+  un comando manuale; l'ultima tinta viene mantenuta e salvata nello stato noto;
+- è disponibile a 6/10/15 fps (default 10) e 0.5–5 s per transizione (default 2.5 s).
+
+Il costo è traffico TCP proporzionale a `luci × fps`. Con 3 luci a 10 fps sono ~30
+comandi/s, gestibili con socket persistenti; non è pensato per 20+ luci a 15 fps su Wi-Fi
+affollato. Il limite è documentato in README e nella UI.
+
 ### Rete e concorrenza
 
 - `set_socketTimeout(1.5)` e `set_socketRetryLimit(1)` su ogni bulb;
@@ -113,7 +141,11 @@ Questa scelta è documentata nel codice (`build_dps`) ed è coperta da test.
 - `lights_config.json` contiene l'ultimo stato noto per ogni luce, così la GUI riparte
   coerente e gli snapshot hanno un fallback sensato.
 - `scenes.json` è indipendente dalle luci: le scene snapshot conservano gli ID e le luci
-  mancanti vengono saltate al richiamo.
+  mancanti vengono saltate al richiamo. Le scene Flow salvano palette, durata, fps,
+  sfasamento e luminosità, non stati per singola luce.
+- I file runtime (`lights_config.json`, `scenes.json`, `devices.json`, `tinytuya.json`,
+  `tuya-raw.json`, `snapshot.json`) sono esclusi da Git perché possono contenere Local Key;
+  nel repository restano solo `lights_config.example.json` e `scenes.example.json`.
 
 ---
 
@@ -127,6 +159,8 @@ Questa scelta è documentata nel codice (`build_dps`) ed è coperta da test.
 | Socket persistenti | comandi in ~20–80 ms invece di handshake | sessioni 3.4/3.5 possono scadere; reconnect gestito |
 | Un thread pool da 32 | scuole/studio con molte luci | picco di connessioni; configurabile in futuro |
 | Scene demo con fallback | provare subito l'app senza hardware | comportamento speciale solo per `demo: true` |
+| Flow software | palette e velocità libere, nessun limite firmware | traffico TCP e fluidità dipendenti dal modello |
+| Un frame in volo per luce | una luce offline non blocca le altre | fps effettivi più bassi su firmware lento |
 | `demo` a livello root | evita di cancellare luci reali | editing manuale azzera il flag (scelta intenzionale) |
 | Nessun polling continuo | zero traffico quando inattivo | lo stato può essere vecchio finché non premi Aggiorna |
 
@@ -187,6 +221,17 @@ Per questo il progetto converte esplicitamente le percentuali.
    L'aggiunta dell'anteprima superava l'altezza. *Fix:* altezza 550 px e contenuto
    verificato con screenshot.
 
+8. **File runtime con Local Key reali tracciati da Git.**
+   Dopo il primo import reale `lights_config.json` conteneva le chiavi, mentre
+   `tinytuya.json`/`tuya-raw.json`/`snapshot.json` erano non tracciati ma non ignorati.
+   *Fix:* tutti i file runtime sono ora in `.gitignore`, rimossi dall'indice e sostituiti
+   dai modelli sicuri `lights_config.example.json` / `scenes.example.json`. Verificato che
+   la cronologia non contenga il Device ID reale.
+
+9. **Dialogo della palette Flow.**
+   Il wrapper del color picker è stato dimensionato e verificato con screenshot; il
+   ridisegno titlebar di CTk è gestito dal fix già descritto al punto 1.
+
 ---
 
 ## 7. Verifiche eseguite
@@ -195,34 +240,39 @@ Per questo il progetto converte esplicitamente le percentuali.
 
 ```
 python -m compileall studiolights main.py tests      → OK
-python -m unittest discover -s tests -v               → 14 test, OK
-ruff check . --exclude .venv                         → solo warning intenzionali
-                                                        (except ampi, S110, RUF046)
+python -m unittest discover -s tests -v               → 18 test, OK
+ruff check . --exclude .venv --select F,E9            → OK
 ```
 
-I 14 test coprono: normalizzazione versioni, clamp/serializzazione stato, validazione
-device, conversioni Kelvin, round-trip scene, import wizard (lista e dict), creazione
-template, persistenza luci e scene, payload atomico colore/bianco/off, decodifica stato,
-classificazione errori e matching IP della scansione.
+I 18 test coprono: normalizzazione versioni, clamp/serializzazione stato, validazione
+device, conversioni Kelvin, round-trip scene global/snapshot/flow, FlowConfig e
+interpolazione colori, import wizard (lista e dict), creazione template, persistenza luci
+e scene, payload atomico colore/bianco/off, decodifica stato, classificazione errori,
+matching IP e motore Flow (frame stream, stop, sfasamento).
 
 ### GUI
 
 Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 
-- layout principale, tab Bianco/Colore;
+- layout principale, tab Bianco/Colore/Flow;
 - selezione tramite checkbox e "seleziona tutte";
-- apertura impostazioni, editor luce, dialogo scena;
-- salvataggio snapshot (3 luci) e persistenza su `scenes.json`;
+- apertura impostazioni, editor luce, dialogo scena e picker palette Flow;
+- salvataggio snapshot (3 luci) e scena Flow con persistenza su `scenes.json`;
 - comando verso 3 luci demo irraggiungibili: 3 errori `Device Unreachable` in parallelo,
   stato "✕ Colore applicato · …", burst disabilitato e poi riabilitato, health a `False`;
+- Flow con controller fake: 18 frame in ~0.6 s, STOP visibile, 30 frame totali, stop
+  immediato senza nuovi frame, colori finali diversi per sfasamento, nessun errore Tk;
 - chiusura pulita, nessuna eccezione Python nei callback.
 
 ### Non eseguite
 
-- Comunicazione con lampadine Tuya fisiche (assenza hardware).
+- Comunicazione con lampadine Tuya fisiche durante lo sviluppo iniziale. Dopo il linking
+  dell'account reale l'utente ha importato le tre luci A60 e l'app è partita; la resa del
+  Flow sul firmware reale resta da valutare e tarare.
 - Test su reti con VLAN / firewall restrittivi.
 - Test di scene hardware su firmware reali (Type A e Type B).
 - Test su macOS/Linux (la GUI è stata verificata solo su Windows).
+- Flow con 20+ luci o su Wi-Fi molto affollato.
 
 ---
 
@@ -233,8 +283,10 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 | Mapping DP diverso da A/B standard | comandi errati o rifiutati | media | fallback su DP osservati, "Test connessione", log |
 | Direzione temperatura invertita | caldo/freddo scambiati | media | documentato; toggle per-device in roadmap |
 | Scena hardware non supportata | errore firmware | alta | messaggio chiaro, indice/payload modificabili |
+| Firmware lento/throttling durante Flow | fade a scatti | media | fps 6/10/15, durata regolabile, un frame in volo |
+| Wi-Fi debole (-85 dBm) | timeout e frame persi | media | avvicinare AP, abbassare fps, health/stop |
 | Socket persistente stale dopo sleep/router | primo comando fallito | media | retry manuale, drop socket e ricreazione |
-| Local key in chiaro su disco | accesso locale alle luci | insita nel protocollo | `.gitignore`, avviso in UI/README |
+| Local key in chiaro su disco | accesso locale alle luci | insita nel protocollo | `.gitignore`, esempi sicuri, avviso in UI/README |
 | `deviceScan` bloccato da firewall | IP non aggiornati | media | inserimento manuale, log |
 | Differenze CTk su altre versioni | errori layout | bassa | requirements con upper bound `<7`; test su 6.0 |
 | Loop di eventi Tk su chiusura | warning "invalid command name" in console | bassa | innocui; `pythonw` non mostra console |
@@ -247,8 +299,12 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 - Il wizard `tinytuya` è l'unico momento in cui vengono usate credenziali cloud; è uno
   strumento esterno, non parte dell'app.
 - Le Local Key sono salvate in chiaro in `lights_config.json` / `devices.json` (formato
-  imposto dal protocollo locale Tuya). Consiglio: disco cifrato, permessi NTFS ristretti,
-  repository privato e `.gitignore`.
+  imposto dal protocollo locale Tuya). Consiglio: disco cifrato e permessi NTFS ristretti.
+- `.gitignore` esclude tutti i file runtime con segreti (`devices.json`,
+  `lights_config.json`, `scenes.json`, `tinytuya.json`, `tuya-raw.json`, `snapshot.json`,
+  log e backup). Il repository traccia solo `lights_config.example.json` e
+  `scenes.example.json`, privi di dati reali. Verificato che la cronologia Git non
+  contenga il Device ID reale importato durante il collaudo.
 - La configurazione demo inclusa non contiene segreti reali.
 - Non c'è esecuzione di codice remoto, telemetria o auto-update.
 
@@ -267,7 +323,10 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
    reattiva e segnalare offline entro ~1,5 s.
 8. Cambia IP a una luce (o riavvia il router), poi **Scansiona IP LAN**.
 9. Prova una **Scena HW** (indice 1–4); se il modello è Type B, prova un payload.
-10. Riavvia l'app: lo stato noto e le scene devono essere coerenti.
+10. Apri **Flow**, seleziona 3 luci, 2.5 s e 10 fps: verifica la fluidità; se a scatti prova
+    6 fps e 4 s. Controlla che **STOP FLOW** fermi tutto e che i comandi manuali fermino il flow.
+11. Salva una scena Flow, richiamala e verifica palette/velocità.
+12. Riavvia l'app: lo stato noto e le scene devono essere coerenti.
 
 ---
 
@@ -276,14 +335,24 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 - Toggle "inverti temperatura" per singola luce e calibrazione Kelvin per modello.
 - Cache delle capability per device (evita il primo `status()` dopo ogni avvio).
 - Editor visuale dello snapshot con preview dei colori per luce.
+- Flow con palette riordinabile via drag&drop e preview animata nella card scena.
+- Sperimentare la modalità music/music-colour nativa per fade più fluidi su modelli compatibili.
 - Ordinamento/duplicazione scene e import/export.
 - Watchdog opzionale per refresh periodico e riconnessione automatica.
 - Packaging PyInstaller con icona e file di configurazione accanto all'eseguibile.
-- Test con hardware reale e matrice modelli (A/B/C, 3.3/3.4/3.5).
+- Test con hardware reale e matrice modelli (A/B/C, 3.3/3.4/3.5) e tuning fps.
 
 ---
 
 ## 12. Changelog
+
+### 1.1.0 — 2026-11-06
+
+- **Flow**: fade infinito tra 8 colori, 0.5–5 s per transizione, 6/10/15 fps, palette
+  modificabile, preset, sfasamento tra luci, STOP globale e scene Flow salvabili.
+- Fix di sicurezza: file runtime con Local Key rimossi dal tracking Git, esempi sicuri.
+- 18 test unitari (incluso il motore Flow); smoke test GUI del Flow con controller fake.
+- Screenshot aggiornati e documentazione Flow in README.
 
 ### 1.0.0 — 2026-11-06
 

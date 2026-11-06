@@ -492,6 +492,45 @@ class LightController:
             targets[device.id] = base.copy(power=power)
         return self.apply_states(targets, "Accensione" if power else "Spegnimento")
 
+    def submit_colour_frame(
+        self,
+        device: LightDevice,
+        rgb: tuple[int, int, int],
+        brightness: int,
+    ) -> Future[LightResult]:
+        """Queue one animation frame. Waits for the ACK to keep the socket in sync.
+
+        Only colour + brightness DPs are sent: switch and work mode are set once
+        by the initial apply before the flow starts.
+        """
+
+        def action(bulb: tinytuya.BulbDevice) -> Any:
+            dpset = bulb.dpset
+            colour_dp = dpset.get("colour")
+            if not colour_dp:
+                raise LightError(
+                    "Questa lampadina non supporta il colore RGB (solo bianco).",
+                    ERROR_UNSUPPORTED,
+                )
+            maximum = int(dpset.get("value_max") or 0)
+            minimum = int(dpset.get("value_min") or 0)
+            if maximum <= 0:
+                raise LightError("Range colore non rilevato.", ERROR_PROTOCOL)
+            red, green, blue = (max(0, min(255, int(channel))) for channel in rgb)
+            payload: dict[str, Any] = {
+                colour_dp: bulb.rgb_to_hexvalue(
+                    red, green, blue, dpset.get("value_hexformat") or "hsv16"
+                )
+            }
+            brightness_dp = dpset.get("brightness")
+            if brightness_dp:
+                percentage = max(1, min(100, int(brightness)))
+                raw = int(round(percentage / 100.0 * maximum))
+                payload[brightness_dp] = max(minimum, min(maximum, raw))
+            return bulb.set_multiple_values(payload)
+
+        return self._executor.submit(self._run_one, device, action)
+
     def refresh(
         self,
         devices: Iterable[LightDevice],

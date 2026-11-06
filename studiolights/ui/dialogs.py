@@ -12,6 +12,7 @@ import customtkinter as ctk
 
 from ..models import SUPPORTED_VERSIONS, LightDevice
 from ..theme import COLORS, font, mono
+from .colorpicker import ColorPicker
 
 LOGGER = logging.getLogger("studiolights.ui.dialogs")
 
@@ -230,6 +231,72 @@ class AlertDialog(BaseDialog):
         dialog.wait_window()
 
 
+class ColorPickerDialog(BaseDialog):
+    """Small modal wrapper around the HSV picker used by the Flow palette."""
+
+    def __init__(
+        self,
+        master: ctk.CTkBaseClass,
+        title: str,
+        initial_rgb: tuple[int, int, int],
+    ) -> None:
+        super().__init__(master, title, 380, 400)
+        self.result: tuple[int, int, int] | None = None
+
+        ctk.CTkLabel(
+            self,
+            text=title,
+            font=font(18, "bold"),
+            text_color=COLORS["text"],
+            anchor="w",
+        ).pack(fill="x", padx=24, pady=(20, 10))
+        self.picker = ColorPicker(self, initial_rgb=initial_rgb)
+        self.picker.pack(padx=22, pady=(0, 8))
+
+        footer = ctk.CTkFrame(self, fg_color="transparent")
+        footer.pack(side="bottom", fill="x", padx=24, pady=18)
+        ctk.CTkButton(
+            footer,
+            text="Annulla",
+            width=96,
+            height=34,
+            corner_radius=8,
+            fg_color="transparent",
+            border_width=1,
+            border_color=COLORS["border_light"],
+            hover_color=COLORS["card_hover"],
+            text_color=COLORS["muted"],
+            command=self.close,
+        ).pack(side="right", padx=(8, 0))
+        ctk.CTkButton(
+            footer,
+            text="Salva colore",
+            width=130,
+            height=34,
+            corner_radius=8,
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            text_color=COLORS["accent_text"],
+            font=font(11, "bold"),
+            command=self._save,
+        ).pack(side="right")
+
+    def _save(self) -> None:
+        self.result = self.picker.get_rgb()
+        self.close()
+
+    @classmethod
+    def ask(
+        cls,
+        master: ctk.CTkBaseClass,
+        title: str,
+        initial_rgb: tuple[int, int, int],
+    ) -> tuple[int, int, int] | None:
+        dialog = cls(master, title, initial_rgb)
+        dialog.wait_window()
+        return dialog.result
+
+
 class SceneDialog(BaseDialog):
     """Create / overwrite dialog. Read result_name and result_type afterwards."""
 
@@ -242,12 +309,14 @@ class SceneDialog(BaseDialog):
         existing_type: str = "global",
         overwrite: bool = False,
         global_summary: str = "",
+        flow_summary: str = "",
     ) -> None:
         super().__init__(master, "Scena Studio", 570, 550)
         self.result_name: str | None = None
         self.result_type: str | None = None
         self._selected_names = selected_names
         self._global_summary = global_summary
+        self._flow_summary = flow_summary
 
         ctk.CTkLabel(
             self,
@@ -291,7 +360,7 @@ class SceneDialog(BaseDialog):
         ).pack(fill="x", padx=26)
         self.type_switch = ctk.CTkSegmentedButton(
             self,
-            values=["Globale", "Snapshot Studio"],
+            values=["Globale", "Snapshot Studio", "Flow"],
             height=34,
             corner_radius=8,
             fg_color=COLORS["panel_alt"],
@@ -304,7 +373,12 @@ class SceneDialog(BaseDialog):
             command=lambda _value: self._update_description(),
         )
         self.type_switch.pack(fill="x", padx=26, pady=(5, 14))
-        self.type_switch.set("Snapshot Studio" if existing_type == "snapshot" else "Globale")
+        if existing_type == "snapshot":
+            self.type_switch.set("Snapshot Studio")
+        elif existing_type == "flow":
+            self.type_switch.set("Flow")
+        else:
+            self.type_switch.set("Globale")
 
         self.description = ctk.CTkLabel(
             self,
@@ -395,10 +469,27 @@ class SceneDialog(BaseDialog):
         self.name_entry.focus_set()
 
     def _selected_type(self) -> str:
-        return "snapshot" if self.type_switch.get() == "Snapshot Studio" else "global"
+        selected = self.type_switch.get()
+        if selected == "Snapshot Studio":
+            return "snapshot"
+        if selected == "Flow":
+            return "flow"
+        return "global"
 
     def _update_description(self) -> None:
-        if self._selected_type() == "global":
+        scene_type = self._selected_type()
+        if scene_type == "flow":
+            self.description.configure(
+                text=(
+                    "Scena FLOW: salva la palette, la velocità e lo sfasamento attuali "
+                    "del tab Flow. Al richiamo avvia il fade infinito sulle luci "
+                    "selezionate in quel momento."
+                )
+            )
+            self.selection_info.configure(text="La palette viene letta dal tab Flow.")
+            self.preview_label.configure(text=self._flow_summary or "Flow · 8 colori")
+            return
+        if scene_type == "global":
             self.description.configure(
                 text=(
                     "Scena GLOBALE: salva i valori attuali dei controlli manuali "

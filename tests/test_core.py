@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 import tempfile
+import time
 import unittest
+from concurrent.futures import Future
 from pathlib import Path
+from types import SimpleNamespace
 
 import tinytuya
 
@@ -16,15 +19,25 @@ from studiolights.controller import (
     state_from_status,
 )
 from studiolights.defaults import DEMO_DEVICE_IDS, demo_scenes
+from studiolights.flow import FlowRunner
 from studiolights.models import (
+    DEFAULT_FLOW_PALETTE,
     ERROR_AUTH,
     ERROR_OFFLINE,
+    SCENE_FLOW,
+    FlowConfig,
     LightDevice,
     LightState,
     Scene,
     normalize_version,
 )
-from studiolights.util import kelvin_from_temp, kelvin_to_rgb, temp_preview_hex
+from studiolights.util import (
+    hex_to_rgb,
+    interpolate_colour,
+    kelvin_from_temp,
+    kelvin_to_rgb,
+    temp_preview_hex,
+)
 
 
 class FakeBulb:
@@ -98,6 +111,48 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(copy.name, "Test")
         self.assertEqual(copy.lights[DEMO_DEVICE_IDS[0]].rgb, (1, 2, 3))
         self.assertFalse(copy.demo)
+
+    def test_flow_config_and_scene_roundtrip(self) -> None:
+        config = FlowConfig(
+            palette=["#ff0000", "#00ff00"],
+            segment_seconds=0.1,
+            fps=99,
+            brightness=0,
+            phase_offset=False,
+        )
+        self.assertEqual(config.palette[0], "#ff0000")
+        self.assertEqual(config.palette[1], "#00ff00")
+        self.assertEqual(config.palette[2], DEFAULT_FLOW_PALETTE[2])
+        self.assertEqual(len(config.palette), 8)
+        self.assertEqual(config.segment_seconds, 0.5)
+        self.assertEqual(config.fps, 20)
+        self.assertEqual(config.brightness, 1)
+        self.assertEqual(config.colour_at(0), (255, 0, 0))
+        self.assertEqual(config.colour_at(1), (0, 255, 0))
+        middle = config.colour_at(0.5)
+        self.assertNotEqual(middle, (255, 0, 0))
+        self.assertNotEqual(middle, (0, 255, 0))
+
+        scene = Scene(name="Flow", type=SCENE_FLOW, flow=config)
+        self.assertTrue(scene.is_flow)
+        self.assertEqual(scene.type_label, "FLOW")
+        self.assertEqual(scene.state, None)
+        self.assertEqual(scene.lights, {})
+        copy = Scene.from_dict(scene.to_dict())
+        self.assertTrue(copy.is_flow)
+        self.assertIsNotNone(copy.flow)
+        assert copy.flow is not None
+        self.assertEqual(copy.flow.palette, config.palette)
+        self.assertIn("8 colori", copy.summary())
+
+    def test_colour_interpolation(self) -> None:
+        self.assertEqual(interpolate_colour((255, 0, 0), (0, 0, 255), 0.0), (255, 0, 0))
+        self.assertEqual(interpolate_colour((255, 0, 0), (0, 0, 255), 1.0), (0, 0, 255))
+        mid = interpolate_colour((255, 0, 0), (0, 0, 255), 0.5)
+        self.assertEqual(len(mid), 3)
+        self.assertNotEqual(mid, (255, 0, 0))
+        self.assertNotEqual(mid, (0, 0, 255))
+        self.assertEqual(hex_to_rgb("#00ff00"), (0, 255, 0))
 
 
 class PersistenceTests(unittest.TestCase):
@@ -255,6 +310,60 @@ class ControllerPayloadTests(unittest.TestCase):
         matches = LightController.match_scan_ips(found, devices)
         self.assertEqual(matches["ABC123"], "192.168.1.50")
         self.assertEqual(matches["def456"], "192.168.1.60")
+
+
+class FlowRunnerTests(unittest.TestCase):
+    class FakeController:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, tuple[int, int, int], int]] = []
+
+        def submit_colour_frame(self, device, rgb, brightness):
+            future: Future = Future()
+            future.set_result(SimpleNamespace(ok=True, kind="", error=""))
+            self.calls.append((device.id, rgb, brightness))
+            return future
+
+    def _devices(self) -> list[LightDevice]:
+        return [
+            LightDevice("Flow A", "flow-a", "192.168.1.10", "0123456789abcdef", "3.3"),
+            LightDevice("Flow B", "flow-b", "192.168.1.11", "0123456789abcdef", "3.3"),
+        ]
+
+    def test_streams_frames_and_stops(self) -> None:
+        controller = self.FakeController()
+        runner = FlowRunner(controller)  # type: ignore[arg-type]
+        config = FlowConfig(
+            palette=list(DEFAULT_FLOW_PALETTE),
+            segment_seconds=0.5,
+            fps=20,
+            phase_offset=False,
+            brightness=70,
+        )
+        runner.start(self._devices(), config)
+        self.assertTrue(runner.is_running)
+        time.sleep(0.8)
+        colors = runner.stop()
+        self.assertFalse(runner.is_running)
+        self.assertGreaterEqual(len(controller.calls), 3)
+        self.assertGreater(len({call[1] for call in controller.calls}), 1)
+        self.assertEqual(set(colors), {"flow-a", "flow-b"})
+        self.assertTrue(all(call[2] == 70 for call in controller.calls))
+
+    def test_phase_offset_gives_different_colours(self) -> None:
+        controller = self.FakeController()
+        runner = FlowRunner(controller)  # type: ignore[arg-type]
+        config = FlowConfig(
+            palette=list(DEFAULT_FLOW_PALETTE),
+            segment_seconds=1.0,
+            fps=10,
+            phase_offset=True,
+            brightness=80,
+        )
+        runner.start(self._devices(), config)
+        time.sleep(0.2)
+        colors = runner.stop()
+        self.assertEqual(len(colors), 2)
+        self.assertNotEqual(colors["flow-a"], colors["flow-b"])
 
 
 if __name__ == "__main__":

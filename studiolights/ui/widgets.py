@@ -210,7 +210,12 @@ class SceneCard(ctk.CTkFrame):
         accent.grid(row=0, column=0, rowspan=3, sticky="ns", padx=(7, 4), pady=9)
         accent.grid_propagate(False)
 
-        badge_color = COLORS["violet"] if scene.is_snapshot else COLORS["accent"]
+        if scene.is_flow:
+            badge_color = COLORS["warning"]
+        elif scene.is_snapshot:
+            badge_color = COLORS["violet"]
+        else:
+            badge_color = COLORS["accent"]
         badge_text = scene.type_label + (" · DEMO" if scene.demo else "")
         self.badge = ctk.CTkLabel(
             self,

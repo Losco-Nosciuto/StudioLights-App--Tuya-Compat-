@@ -16,6 +16,8 @@ Studio Lights risolve questo con:
 - **Scene Studio globali**: un colore/bianco + luminosità applicato alle luci spuntate.
 - **Snapshot multi-luce**: ogni lampadina conserva il proprio colore, temperatura e
   luminosità, e viene ripristinata esattamente com'era.
+- **Flow infinito**: fade graduale tra 8 colori, con velocità personalizzabile e
+  sfasamento tra le luci per un effetto studio continuo.
 - **Invio parallelo**: un `ThreadPoolExecutor` manda i comandi a tutte le luci insieme;
   ogni lampadina riceve **un solo payload atomico** (niente effetto "popcorn").
 - **Timeout aggressivi**: una luce spenta dall'interruttore a muro non blocca l'interfaccia.
@@ -29,8 +31,10 @@ Studio Lights risolve questo con:
   - **Bianco**: luminosità 1–100% e temperatura colore caldo→freddo 0–100%.
   - **Colore**: color picker HSV visuale, preset rapidi, luminosità.
   - **Scene HW**: invio delle scene native del firmware Tuya (indice + payload opzionale).
-- **Scene Studio** salvabili/richiamabili con un clic, con tipo *Globale* o *Snapshot*.
-  Sovrascrittura ed eliminazione dal menu `⋯` della card.
+  - **Flow**: fade infinito tra 8 colori, 0.5–5 s per transizione, 6/10/15 fps,
+    sfasamento tra le luci e stop immediato.
+- **Scene Studio** salvabili/richiamabili con un clic, con tipo *Globale*, *Snapshot* o
+  *Flow*. Sovrascrittura ed eliminazione dal menu `⋯` della card.
 - Import automatico di `devices.json` (wizard tinytuya) e import manuale dalle impostazioni.
 - Gestione luci completa: aggiunta, modifica, eliminazione, test di connessione.
 - Scansione LAN con `tinytuya.deviceScan()` per riallineare gli IP cambiati dal router.
@@ -38,9 +42,9 @@ Studio Lights risolve questo con:
 
 ## Galleria
 
-| Modalità colore | Impostazioni luci |
-|---|---|
-| ![Modalità colore](docs/colour.png) | ![Impostazioni](docs/settings.png) |
+| Flow 8 colori | Modalità colore | Impostazioni luci |
+|---|---|---|
+| ![Flow](docs/flow.png) | ![Modalità colore](docs/colour.png) | ![Impostazioni](docs/settings.png) |
 
 
 ## Requisiti
@@ -96,8 +100,9 @@ Nella cartella del progetto:
 .\.venv\Scripts\python -m tinytuya wizard
 ```
 
-Il wizard chiede le credenziali dell'account Tuya / Smart Life (usate solo da tinytuya
-per leggere le chiavi una volta) e genera `devices.json`. Metti il file accanto a `main.py`.
+Il wizard chiede le credenziali del progetto **Tuya IoT Platform** (Access ID / Access
+Secret), un Device ID qualsiasi e la region del progetto; servono solo a tinytuya per
+leggere le Local Key una volta. Genera `devices.json`: mettilo accanto a `main.py`.
 Se `tinytuya` è installato nel Python globale, va bene anche `python -m tinytuya wizard`.
 Dalle Impostazioni puoi copiare il comando esatto con il pulsante **Copia comando wizard**.
 Su macOS/Linux il comando del venv è `.venv/bin/python -m tinytuya wizard`.
@@ -131,24 +136,44 @@ tramite il Device ID. Non serve rifare il wizard.
 ## Uso quotidiano
 
 1. Spunta le luci nel pannello **LUCI**.
-2. Scegli il tab **Bianco**, **Colore** o **Scena HW**.
-3. Regola i valori e premi **APPLICA …**.
+2. Scegli il tab **Bianco**, **Colore**, **Scena HW** o **Flow**.
+3. Regola i valori e premi **APPLICA …** (oppure **AVVIA FLOW**).
 4. Salva l'atmosfera con **＋ Nuova** in **SCENE STUDIO**:
    - **Globale** salva i controlli manuali correnti e li applica alle luci spuntate al
      momento del richiamo;
    - **Snapshot Studio** salva lo stato individuale delle luci selezionate e lo ripristina
-     esattamente, indipendentemente da cosa è spuntato dopo.
+     esattamente, indipendentemente da cosa è spuntato dopo;
+   - **Flow** salva palette, velocità, fps e sfasamento del tab Flow e li riavvia con un clic.
 5. Un clic sulla card applica la scena; `⋯` permette di sovrascriverla con lo stato
    attuale o eliminarla.
 
 > Lo **Snapshot** usa l'ultimo stato noto/applicato di ogni luce. Se hai cambiato le
 > lampadine da Smart Life o da un altro telecomando, premi prima **Aggiorna stato**.
 
+### Flow: fade infinito a 8 colori
+
+1. Seleziona le luci, apri il tab **Flow**.
+2. Clicca uno degli 8 campioni per cambiarlo, oppure carica un preset
+   **Cyberpunk / Tramonto / Foresta / Neon**.
+3. Imposta **Velocità** (0.5–5 s per transizione), **FPS** (6/10/15) e **Sfasamento luci**.
+4. Premi **AVVIA FLOW**. Il fade continua finché non premi **■ STOP FLOW** in basso a
+   destra o applichi un altro comando.
+5. **Salva scena Flow** per ritrovare palette e velocità nella griglia scene.
+
+> Il Flow non è una scena hardware Tuya: il fade viene interpolato dal PC e inviato come
+> frame di colore. La fluidità dipende dal firmware della lampadina e dalla rete; se vedi
+> scatti, abbassa gli FPS o aumenta i secondi per transizione. Ogni lampadina ha al massimo
+> un frame in volo, quindi una luce offline non blocca le altre.
+
 Scorciatoie: `F5` aggiorna lo stato, `Ctrl+N` crea una scena.
 
 ## File di configurazione
 
 Tutti i file stanno nella root del progetto e vengono creati automaticamente se mancanti.
+I file runtime (`lights_config.json`, `scenes.json`, `devices.json`, `tinytuya.json`,
+`tuya-raw.json`, `snapshot.json`) sono **ignorati da Git** perché possono contenere Local
+Key o dati personali. Nel repository trovi solo i modelli `lights_config.example.json` e
+`scenes.example.json`.
 
 ### `lights_config.json`
 
@@ -193,22 +218,39 @@ Tutti i file stanno nella root del progetto e vengono creati automaticamente se 
           "brightness": 85, "colortemp": 50, "rgb": [0, 225, 255],
           "hw_scene": null, "hw_data": null }
       }
+    },
+    {
+      "id": "scn_aurora_flow",
+      "name": "Aurora Flow",
+      "type": "flow",
+      "demo": false,
+      "flow": {
+        "palette": ["#00e5ff", "#35e0c8", "#7cff6b", "#3da5ff",
+                    "#6c5ce7", "#ff4fd8", "#ff8a3d", "#ffd166"],
+        "segment_seconds": 2.5,
+        "fps": 10,
+        "phase_offset": true,
+        "brightness": 75
+      }
     }
   ]
 }
 ```
 
-`type` può essere `global` o `snapshot`. Le scene demo con `"demo": true` che non trovano
-le luci originali vengono adattate, in ordine, alle luci selezionate: utile per provare
-l'app prima di configurare l'hardware. Le scene create da te non hanno questo fallback.
+`type` può essere `global`, `snapshot` o `flow`. Le scene demo con `"demo": true` che non
+trovano le luci originali vengono adattate, in ordine, alle luci selezionate: utile per
+provare l'app prima di configurare l'hardware. Le scene create da te non hanno questo
+fallback. Una scena `flow` viene avviata sulle luci selezionate al momento del richiamo e
+non contiene stati per singola luce.
 
 ## Sicurezza
 
 - La **Local Key** è un segreto: chi la possiede e ha accesso alla LAN può controllare la
   lampadina. Non condividerla.
-- `.gitignore` esclude `devices.json`, `logs/` e i backup. Anche `lights_config.json`
-  contiene le key: **non committare la tua configurazione reale** su repository pubblici.
-  Il file incluso nel progetto usa solo chiavi demo.
+- `.gitignore` esclude tutti i file runtime con key o dati personali: `devices.json`,
+  `lights_config.json`, `scenes.json`, `tinytuya.json`, `tuya-raw.json`, `snapshot.json`,
+  log e backup. I file `*.example.json` tracciati contengono solo dati demo.
+- Non forzare l'aggiunta di questi file con `git add -f`: finirebbero nella cronologia.
 - L'app non contatta il cloud: parla solo con gli IP in `lights_config.json` sulla porta
   TCP 6668. Il wizard tinytuya è l'unico passaggio cloud, e serve solo a ottenere le key.
 
@@ -217,22 +259,24 @@ l'app prima di configurare l'hardware. Le scene create da te non hanno questo fa
 ```
 main.py                      entry point + gestione errori/DPI
 run.bat / run.sh             avvio rapido con venv
-lights_config.json           luci + ultimo stato noto (demo di esempio)
-scenes.json                  6 scene di studio pronte
+lights_config.example.json   modello luci + stato (demo)
+scenes.example.json          7 scene demo, inclusa Aurora Flow
 devices_template.json        modello per il wizard
 assets/                      icona app (PNG/ICO)
+docs/                        screenshot
 studiolights/
-  models.py                  LightDevice, LightState, Scene, report
+  models.py                  LightDevice, LightState, FlowConfig, Scene, report
   config.py                  persistenza atomica, import devices.json, seed
   controller.py              tinytuya, ThreadPoolExecutor, timeout, DPS atomici
+  flow.py                    motore fade host-side, un frame in volo per luce
   defaults.py                dati demo
   theme.py                   palette dark
-  util.py                    JSON, log, colore/Kelvin
-  ui/app.py                  finestra principale
+  util.py                    JSON, log, colore/Kelvin/interpolazione
+  ui/app.py                  finestra principale, tab Flow, scene
   ui/widgets.py              riga luce, card scena
   ui/colorpicker.py          picker HSV con Pillow
-  ui/dialogs.py              impostazioni, editor luce, scene, conferme
-tests/test_core.py           14 test senza hardware
+  ui/dialogs.py              impostazioni, editor luce, scene, palette, conferme
+tests/test_core.py           18 test senza hardware
 tools/make_icon.py           rigenera l'icona
 ```
 
@@ -243,7 +287,8 @@ tools/make_icon.py           rigenera l'icona
 ```
 
 I test coprono modelli, validazione, persistenza, import wizard, seed scene, payload DPS
-atomici, classificazione errori e matching IP. Non richiedono lampadine né GUI.
+atomici, classificazione errori, matching IP, interpolazione colori e motore Flow
+(invio frame, stop, sfasamento). Non richiedono lampadine né GUI.
 
 ## Troubleshooting
 
@@ -253,6 +298,8 @@ atomici, classificazione errori e matching IP. Non richiedono lampadine né GUI.
 | `Check device key or version` | Local Key errata o protocollo sbagliato: prova 3.3, 3.4, 3.5. |
 | La luce accende ma il colore no | modello solo bianco (CCT) o DP colore non esposto; il test mostra il tipo. |
 | Scena HW non funziona | le scene sono specifiche del firmware; prova indici 1–4, poi il payload Type B. |
+| Flow a scatti | abbassa gli FPS (6), aumenta i secondi per transizione, avvicina le luci al router; il fade è generato dal PC, non dal firmware. |
+| Flow non parte | nessuna luce selezionata, oppure tutte offline; controlla la barra di stato. |
 | Temperatura invertita | alcuni modelli mappano 0 = freddo. È documentato come limite noto. |
 | La GUI si blocca | non dovrebbe: i comandi sono in thread. Controlla `logs/studiolights.log`. |
 | La scansione non trova nulla | UDP broadcast bloccato dal firewall o rete guest/client isolation. |
@@ -264,9 +311,12 @@ atomici, classificazione errori e matching IP. Non richiedono lampadine né GUI.
 - Le scene hardware e la direzione della temperatura variano per modello/firmware.
 - Il colore viene inviato con il valore HSV scelto dal picker; la luminosità è un DP
   separato, quindi la resa percepita dipende dal firmware.
+- Il Flow è un'animazione software: 6–15 frame/s, con ACK per frame per mantenere la socket
+  sincronizzata. Su firmware lenti il fade può risultare a gradini. Non è una scena
+  hardware e non continua se l'app viene chiusa.
 - Non c'è autenticazione locale: chi apre l'app sul PC può comandare le luci.
 
 ## Stack
 
 Python 3.12 · [tinytuya](https://github.com/jasonacox/tinytuya) 1.20 · CustomTkinter 6 ·
-Pillow · Tkinter · ThreadPoolExecutor. Nessun servizio cloud a runtime.
+Pillow · Tkinter · ThreadPoolExecutor · FlowRunner. Nessun servizio cloud a runtime.

@@ -9,7 +9,15 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from .util import clamp_int, kelvin_from_temp, rgb_to_hex
+from .util import (
+    clamp_float,
+    clamp_int,
+    hex_to_rgb,
+    interpolate_colour,
+    kelvin_from_temp,
+    normalize_hex_color,
+    rgb_to_hex,
+)
 
 SUPPORTED_VERSIONS = ("3.1", "3.2", "3.3", "3.4", "3.5")
 DEFAULT_VERSION = "3.3"
@@ -214,18 +222,97 @@ class LightState:
 
 SCENE_GLOBAL = "global"
 SCENE_SNAPSHOT = "snapshot"
-SCENE_TYPES = (SCENE_GLOBAL, SCENE_SNAPSHOT)
+SCENE_FLOW = "flow"
+SCENE_TYPES = (SCENE_GLOBAL, SCENE_SNAPSHOT, SCENE_FLOW)
+
+DEFAULT_FLOW_PALETTE: tuple[str, ...] = (
+    "#ff3b30",
+    "#ff8a3d",
+    "#ffd166",
+    "#7cff6b",
+    "#35e0c8",
+    "#3da5ff",
+    "#6c5ce7",
+    "#ff4fd8",
+)
+
+
+@dataclass
+class FlowConfig:
+    """Settings for the software-driven infinite colour fade."""
+
+    palette: list[str] = field(default_factory=lambda: list(DEFAULT_FLOW_PALETTE))
+    segment_seconds: float = 2.5
+    fps: int = 10
+    phase_offset: bool = True
+    brightness: int = 80
+
+    def __post_init__(self) -> None:
+        raw_palette = list(self.palette or [])
+        normalized: list[str] = []
+        for index in range(8):
+            fallback = DEFAULT_FLOW_PALETTE[index]
+            if index < len(raw_palette):
+                normalized.append(normalize_hex_color(raw_palette[index], fallback))
+            else:
+                normalized.append(fallback)
+        self.palette = normalized
+        self.segment_seconds = round(clamp_float(self.segment_seconds, 0.5, 10.0, 2.5), 2)
+        self.fps = clamp_int(self.fps, 4, 20, 10)
+        self.brightness = clamp_int(self.brightness, 1, 100, 80)
+        self.phase_offset = bool(self.phase_offset)
+
+    @property
+    def summary(self) -> str:
+        return f"{len(self.palette)} colori · {self.segment_seconds:g} s · {self.fps} fps"
+
+    def rgb_palette(self) -> list[tuple[int, int, int]]:
+        return [hex_to_rgb(color) or (255, 255, 255) for color in self.palette]
+
+    def colour_at(self, position: float) -> tuple[int, int, int]:
+        """Colour at a looping palette position (0..len(palette))."""
+        colors = self.rgb_palette()
+        count = len(colors)
+        wrapped = float(position) % count
+        index = int(wrapped) % count
+        amount = wrapped - int(wrapped)
+        return interpolate_colour(colors[index], colors[(index + 1) % count], amount)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "palette": list(self.palette),
+            "segment_seconds": self.segment_seconds,
+            "fps": self.fps,
+            "phase_offset": self.phase_offset,
+            "brightness": self.brightness,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Any) -> "FlowConfig":
+        if not isinstance(data, dict):
+            return cls()
+        return cls(
+            palette=data.get("palette") or list(DEFAULT_FLOW_PALETTE),
+            segment_seconds=data.get("segment_seconds", 2.5),
+            fps=data.get("fps", 10),
+            phase_offset=data.get("phase_offset", True),
+            brightness=data.get("brightness", 80),
+        )
+
+    def copy(self) -> "FlowConfig":
+        return FlowConfig.from_dict(self.to_dict())
 
 
 @dataclass
 class Scene:
-    """A global scene (one state) or a multi-light snapshot (state per device)."""
+    """A global scene, a multi-light snapshot or an infinite colour flow."""
 
     name: str
     type: str = SCENE_GLOBAL
     id: str = field(default_factory=lambda: f"scn_{uuid.uuid4().hex[:10]}")
     state: LightState | None = None
     lights: dict[str, LightState] = field(default_factory=dict)
+    flow: FlowConfig | None = None
     demo: bool = False
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
@@ -240,11 +327,21 @@ class Scene:
         for key, value in (self.lights or {}).items():
             cleaned[str(key)] = value if isinstance(value, LightState) else LightState.from_dict(value)
         self.lights = cleaned
-        if self.type == SCENE_GLOBAL and self.state is None:
-            self.state = LightState()
-        if self.type == SCENE_SNAPSHOT and not self.lights:
-            # A snapshot with no lights is still valid data-wise, but the UI blocks it.
-            self.state = self.state or LightState()
+
+        if self.type == SCENE_FLOW:
+            if isinstance(self.flow, dict):
+                self.flow = FlowConfig.from_dict(self.flow)
+            elif not isinstance(self.flow, FlowConfig):
+                self.flow = FlowConfig()
+            self.state = None
+            self.lights = {}
+        else:
+            self.flow = None
+            if self.type == SCENE_GLOBAL and self.state is None:
+                self.state = LightState()
+            if self.type == SCENE_SNAPSHOT and not self.lights:
+                # A snapshot with no lights is still valid data-wise, but the UI blocks it.
+                self.state = self.state or LightState()
 
     @property
     def is_global(self) -> bool:
@@ -255,11 +352,19 @@ class Scene:
         return self.type == SCENE_SNAPSHOT
 
     @property
+    def is_flow(self) -> bool:
+        return self.type == SCENE_FLOW
+
+    @property
     def type_label(self) -> str:
+        if self.is_flow:
+            return "FLOW"
         return "GLOBALE" if self.is_global else "SNAPSHOT"
 
     @property
     def accent_hex(self) -> str:
+        if self.is_flow and self.flow:
+            return self.flow.palette[0]
         if self.is_global and self.state:
             return self.state.accent_hex
         if self.lights:
@@ -268,6 +373,8 @@ class Scene:
         return "#4a5a6e"
 
     def summary(self, known_names: dict[str, str] | None = None) -> str:
+        if self.is_flow and self.flow:
+            return self.flow.summary
         if self.is_global and self.state:
             return self.state.summary()
         count = len(self.lights)
@@ -285,6 +392,8 @@ class Scene:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
+        if self.flow is not None:
+            payload["flow"] = self.flow.to_dict()
         if self.state is not None:
             payload["state"] = self.state.to_dict()
         if self.lights:
@@ -301,12 +410,14 @@ class Scene:
             for device_id, state_data in lights_raw.items()
             if isinstance(state_data, dict)
         }
+        flow = FlowConfig.from_dict(data.get("flow")) if data.get("flow") is not None else None
         return cls(
             id=data.get("id") or f"scn_{uuid.uuid4().hex[:10]}",
             name=data.get("name") or "Scena senza nome",
             type=scene_type if scene_type in SCENE_TYPES else SCENE_GLOBAL,
             state=state,
             lights=lights,
+            flow=flow,
             demo=bool(data.get("demo", False)),
             created_at=data.get("created_at") or utc_now_iso(),
             updated_at=data.get("updated_at") or utc_now_iso(),

@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from .models import SCENE_GLOBAL, SCENE_SNAPSHOT, LightDevice, LightState, Scene
+from .models import (
+    SCENE_FLOW,
+    SCENE_GLOBAL,
+    SCENE_SNAPSHOT,
+    FlowConfig,
+    LightDevice,
+    LightState,
+    Scene,
+)
 
 DEMO_DEVICE_IDS = (
     "bfaa11bb22cc33dd44e1",
@@ -55,7 +63,7 @@ def demo_states() -> dict[str, LightState]:
 
 
 def demo_scenes() -> list[Scene]:
-    """Six ready-to-use studio scenes (2 of them multi-light snapshots)."""
+    """Seven ready-to-use studio scenes (2 snapshots + 1 infinite flow)."""
     sx, dx, background = DEMO_DEVICE_IDS
     return [
         Scene(
@@ -105,6 +113,27 @@ def demo_scenes() -> list[Scene]:
                 background: LightState(power=False, mode="white", brightness=10, colortemp=20),
             },
             state=LightState(power=True, mode="colour", brightness=20, rgb=(255, 135, 40)),
+        ),
+        Scene(
+            id="scn_aurora_flow",
+            name="Aurora Flow",
+            type=SCENE_FLOW,
+            flow=FlowConfig(
+                palette=[
+                    "#00e5ff",
+                    "#35e0c8",
+                    "#7cff6b",
+                    "#3da5ff",
+                    "#6c5ce7",
+                    "#ff4fd8",
+                    "#ff8a3d",
+                    "#ffd166",
+                ],
+                segment_seconds=2.5,
+                fps=10,
+                phase_offset=True,
+                brightness=75,
+            ),
         ),
     ]
 
