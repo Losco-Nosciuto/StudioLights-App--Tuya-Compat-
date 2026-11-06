@@ -1,0 +1,7 @@
+* text=auto
+
+run.bat text eol=crlf
+run.sh text eol=lf
+
+*.png binary
+*.ico binary
