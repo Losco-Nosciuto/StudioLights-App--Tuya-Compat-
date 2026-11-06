@@ -1,0 +1,272 @@
+# Studio Lights
+
+Controllo **locale LAN** per lampadine smart Tuya / Smart Life, pensato per uno studio
+fotografico o una scrivania: scene multi-luce, colori indipendenti, bianco regolabile e
+applicazione parallela a tutte le luci selezionate. Nessun cloud, nessuna attesa:
+i comandi viaggiano direttamente sulla rete locale.
+
+![Studio Lights](docs/main.png)
+
+## Perché esiste
+
+L'app Smart Life non permette di applicare colori diversi alle singole lampadine di un
+gruppo nello stesso momento, né di salvare uno "snapshot" completo dello studio.
+Studio Lights risolve questo con:
+
+- **Scene Studio globali**: un colore/bianco + luminosità applicato alle luci spuntate.
+- **Snapshot multi-luce**: ogni lampadina conserva il proprio colore, temperatura e
+  luminosità, e viene ripristinata esattamente com'era.
+- **Invio parallelo**: un `ThreadPoolExecutor` manda i comandi a tutte le luci insieme;
+  ogni lampadina riceve **un solo payload atomico** (niente effetto "popcorn").
+- **Timeout aggressivi**: una luce spenta dall'interruttore a muro non blocca l'interfaccia.
+
+## Funzioni
+
+- GUI dark mode in CustomTkinter, layout a tre pannelli.
+- Lista luci con checkbox, switch ON/OFF rapido, "Seleziona tutte"/"Nessuna" e master
+  **ACCENDI / SPEGNI SELEZIONATE**.
+- Controllo manuale:
+  - **Bianco**: luminosità 1–100% e temperatura colore caldo→freddo 0–100%.
+  - **Colore**: color picker HSV visuale, preset rapidi, luminosità.
+  - **Scene HW**: invio delle scene native del firmware Tuya (indice + payload opzionale).
+- **Scene Studio** salvabili/richiamabili con un clic, con tipo *Globale* o *Snapshot*.
+  Sovrascrittura ed eliminazione dal menu `⋯` della card.
+- Import automatico di `devices.json` (wizard tinytuya) e import manuale dalle impostazioni.
+- Gestione luci completa: aggiunta, modifica, eliminazione, test di connessione.
+- Scansione LAN con `tinytuya.deviceScan()` per riallineare gli IP cambiati dal router.
+- Barra di stato con esito, latenza e luci offline; log rotante in `logs/`.
+
+## Galleria
+
+| Modalità colore | Impostazioni luci |
+|---|---|
+| ![Modalità colore](docs/colour.png) | ![Impostazioni](docs/settings.png) |
+
+
+## Requisiti
+
+- **Python 3.12+**
+- Windows 10/11, macOS o Linux con Tk 8.6
+- Lampadine Tuya / Smart Life con **Local Key** (protocolli 3.1–3.5; consigliati 3.3/3.4/3.5)
+- PC e lampadine sulla **stessa rete locale**; niente VLAN isolate o client isolation
+
+Dipendenze Python (installate automaticamente da `run.bat` / `run.sh`):
+
+```
+tinytuya>=1.20.0
+customtkinter>=6.0.0
+Pillow>=10.0.0
+```
+
+## Avvio rapido
+
+### Windows
+
+```bat
+run.bat
+```
+
+Al primo avvio crea `.venv`, installa le dipendenze e lancia l'app senza finestra console.
+Gli errori vengono scritti in `logs\studiolights.log`.
+
+### macOS / Linux
+
+```bash
+chmod +x run.sh
+./run.sh
+```
+
+### Avvio manuale
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python -m pip install -r requirements.txt
+.\.venv\Scripts\python main.py
+```
+
+Su macOS/Linux: `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/python main.py`.
+
+## Configurare le lampadine
+
+### 1. Ottenere le Local Key con il wizard
+
+Nella cartella del progetto:
+
+```powershell
+.\.venv\Scripts\python -m tinytuya wizard
+```
+
+Il wizard chiede le credenziali dell'account Tuya / Smart Life (usate solo da tinytuya
+per leggere le chiavi una volta) e genera `devices.json`. Metti il file accanto a `main.py`.
+Se `tinytuya` è installato nel Python globale, va bene anche `python -m tinytuya wizard`.
+Dalle Impostazioni puoi copiare il comando esatto con il pulsante **Copia comando wizard**.
+Su macOS/Linux il comando del venv è `.venv/bin/python -m tinytuya wizard`.
+
+> Se `devices.json` esiste e la configurazione è ancora quella demo, Studio Lights lo
+> importa **automaticamente al primo avvio**. In alternativa:
+> **Impostazioni → Importa devices.json**.
+
+Il file `devices_template.json` è solo un modello/guida e non viene letto dall'app.
+
+### 2. Inserimento manuale
+
+**Impostazioni → + Aggiungi luce**, poi compila:
+
+| Campo | Note |
+|---|---|
+| Nome | Etichetta libera, es. `Luce SX` |
+| Device ID | dall'app Smart Life o da `devices.json` |
+| IP locale | es. `192.168.1.50`; può essere aggiornato con la scansione |
+| Local Key | 16 caratteri, segreta |
+| Protocollo | 3.3 / 3.4 / 3.5 (disponibili anche 3.1/3.2) |
+
+Il pulsante **Test connessione** legge lo stato reale e mostra protocollo e tipo di
+lampadina. Se il test passa ma il comando fallisce, controlla versione e key.
+
+### 3. IP cambiati dal router
+
+**Scansiona IP LAN** esegue un broadcast UDP e riallinea gli IP delle luci configurate
+tramite il Device ID. Non serve rifare il wizard.
+
+## Uso quotidiano
+
+1. Spunta le luci nel pannello **LUCI**.
+2. Scegli il tab **Bianco**, **Colore** o **Scena HW**.
+3. Regola i valori e premi **APPLICA …**.
+4. Salva l'atmosfera con **＋ Nuova** in **SCENE STUDIO**:
+   - **Globale** salva i controlli manuali correnti e li applica alle luci spuntate al
+     momento del richiamo;
+   - **Snapshot Studio** salva lo stato individuale delle luci selezionate e lo ripristina
+     esattamente, indipendentemente da cosa è spuntato dopo.
+5. Un clic sulla card applica la scena; `⋯` permette di sovrascriverla con lo stato
+   attuale o eliminarla.
+
+> Lo **Snapshot** usa l'ultimo stato noto/applicato di ogni luce. Se hai cambiato le
+> lampadine da Smart Life o da un altro telecomando, premi prima **Aggiorna stato**.
+
+Scorciatoie: `F5` aggiorna lo stato, `Ctrl+N` crea una scena.
+
+## File di configurazione
+
+Tutti i file stanno nella root del progetto e vengono creati automaticamente se mancanti.
+
+### `lights_config.json`
+
+```json
+{
+  "schema_version": 1,
+  "demo": false,
+  "updated_at": "2026-11-06T10:00:00+00:00",
+  "devices": [
+    {
+      "name": "Luce SX",
+      "id": "bf0123456789abcdef01",
+      "ip": "192.168.1.101",
+      "key": "0123456789abcdef",
+      "version": "3.3",
+      "state": {
+        "power": true, "mode": "colour", "brightness": 80,
+        "colortemp": 50, "rgb": [0, 220, 255],
+        "hw_scene": null, "hw_data": null
+      }
+    }
+  ]
+}
+```
+
+### `scenes.json`
+
+```json
+{
+  "schema_version": 1,
+  "scenes": [
+    {
+      "id": "scn_esempio",
+      "name": "Cyberpunk Dual-Tone",
+      "type": "snapshot",
+      "demo": false,
+      "state": { "power": true, "mode": "colour", "brightness": 85,
+                 "colortemp": 50, "rgb": [0, 225, 255],
+                 "hw_scene": null, "hw_data": null },
+      "lights": {
+        "bf0123456789abcdef01": { "power": true, "mode": "colour",
+          "brightness": 85, "colortemp": 50, "rgb": [0, 225, 255],
+          "hw_scene": null, "hw_data": null }
+      }
+    }
+  ]
+}
+```
+
+`type` può essere `global` o `snapshot`. Le scene demo con `"demo": true` che non trovano
+le luci originali vengono adattate, in ordine, alle luci selezionate: utile per provare
+l'app prima di configurare l'hardware. Le scene create da te non hanno questo fallback.
+
+## Sicurezza
+
+- La **Local Key** è un segreto: chi la possiede e ha accesso alla LAN può controllare la
+  lampadina. Non condividerla.
+- `.gitignore` esclude `devices.json`, `logs/` e i backup. Anche `lights_config.json`
+  contiene le key: **non committare la tua configurazione reale** su repository pubblici.
+  Il file incluso nel progetto usa solo chiavi demo.
+- L'app non contatta il cloud: parla solo con gli IP in `lights_config.json` sulla porta
+  TCP 6668. Il wizard tinytuya è l'unico passaggio cloud, e serve solo a ottenere le key.
+
+## Struttura del progetto
+
+```
+main.py                      entry point + gestione errori/DPI
+run.bat / run.sh             avvio rapido con venv
+lights_config.json           luci + ultimo stato noto (demo di esempio)
+scenes.json                  6 scene di studio pronte
+devices_template.json        modello per il wizard
+assets/                      icona app (PNG/ICO)
+studiolights/
+  models.py                  LightDevice, LightState, Scene, report
+  config.py                  persistenza atomica, import devices.json, seed
+  controller.py              tinytuya, ThreadPoolExecutor, timeout, DPS atomici
+  defaults.py                dati demo
+  theme.py                   palette dark
+  util.py                    JSON, log, colore/Kelvin
+  ui/app.py                  finestra principale
+  ui/widgets.py              riga luce, card scena
+  ui/colorpicker.py          picker HSV con Pillow
+  ui/dialogs.py              impostazioni, editor luce, scene, conferme
+tests/test_core.py           14 test senza hardware
+tools/make_icon.py           rigenera l'icona
+```
+
+## Test
+
+```powershell
+.\.venv\Scripts\python -m unittest discover -s tests -v
+```
+
+I test coprono modelli, validazione, persistenza, import wizard, seed scene, payload DPS
+atomici, classificazione errori e matching IP. Non richiedono lampadine né GUI.
+
+## Troubleshooting
+
+| Sintomo | Causa / soluzione |
+|---|---|
+| `Network Error: Device Unreachable` | luce spenta dall'interruttore, IP cambiato, firewall, VLAN. Usa **Scansiona IP LAN** e verifica il ping. |
+| `Check device key or version` | Local Key errata o protocollo sbagliato: prova 3.3, 3.4, 3.5. |
+| La luce accende ma il colore no | modello solo bianco (CCT) o DP colore non esposto; il test mostra il tipo. |
+| Scena HW non funziona | le scene sono specifiche del firmware; prova indici 1–4, poi il payload Type B. |
+| Temperatura invertita | alcuni modelli mappano 0 = freddo. È documentato come limite noto. |
+| La GUI si blocca | non dovrebbe: i comandi sono in thread. Controlla `logs/studiolights.log`. |
+| La scansione non trova nulla | UDP broadcast bloccato dal firewall o rete guest/client isolation. |
+
+## Limiti noti
+
+- Non è stato possibile validare il progetto contro lampadine fisiche in questo ambiente:
+  i test coprono logica, payload e GUI, ma va eseguito un test sul campo (vedi `Audit.md`).
+- Le scene hardware e la direzione della temperatura variano per modello/firmware.
+- Il colore viene inviato con il valore HSV scelto dal picker; la luminosità è un DP
+  separato, quindi la resa percepita dipende dal firmware.
+- Non c'è autenticazione locale: chi apre l'app sul PC può comandare le luci.
+
+## Stack
+
+Python 3.12 · [tinytuya](https://github.com/jasonacox/tinytuya) 1.20 · CustomTkinter 6 ·
+Pillow · Tkinter · ThreadPoolExecutor. Nessun servizio cloud a runtime.
