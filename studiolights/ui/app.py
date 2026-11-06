@@ -28,6 +28,7 @@ from ..models import (
     Scene,
     utc_now_iso,
 )
+from ..screen_sync import ScreenSyncRunner, ScreenSyncStore
 from ..theme import COLORS, font, mono, setup_appearance
 from ..util import format_ms, hex_to_rgb, kelvin_from_temp, rgb_to_hex, temp_preview_hex
 from .colorpicker import ColorPicker
@@ -37,6 +38,7 @@ from .dialogs import (
     SceneDialog,
     SettingsWindow,
 )
+from .screen_sync import ScreenSyncWindow
 from .widgets import LightRow, SceneCard
 
 LOGGER = logging.getLogger("studiolights.ui.app")
@@ -105,6 +107,7 @@ class StudioLightsApp(ctk.CTk):
         self._scan_running = False
         self._save_job: str | None = None
         self.settings_window: SettingsWindow | None = None
+        self.screen_window: ScreenSyncWindow | None = None
         self.rows: dict[str, LightRow] = {}
         self.health: dict[str, bool | None] = {}
         self._scene_cards: list[SceneCard] = []
@@ -133,6 +136,16 @@ class StudioLightsApp(ctk.CTk):
             self.health[device.id] = None
         self.scenes: list[Scene] = self.scene_store.load()
         self.controller.sync_devices(self.devices)
+
+        self.screen_store = ScreenSyncStore(self.root_dir)
+        self.screen_config = self.screen_store.load()
+        self.screen_config.assign_default_zones(self.devices)
+        self.screen_runner = ScreenSyncRunner(self.controller)
+        self._screen_running = False
+        self._screen_devices: list[LightDevice] = []
+        self._screen_health_job: str | None = None
+        self._screen_failed_seen: set[str] = set()
+        self._screen_last_error = ""
 
         # Manual control state (percentages are what the Tuya API expects from us).
         self.ui_brightness = 80.0
@@ -306,7 +319,23 @@ class StudioLightsApp(ctk.CTk):
             font=font(10, "bold"),
             command=self.refresh_states,
         )
-        self.refresh_button.grid(row=0, column=3, rowspan=2, padx=(0, 8))
+        self.refresh_button.grid(row=0, column=4, rowspan=2, padx=(0, 8))
+
+        self.screen_button = ctk.CTkButton(
+            header,
+            text="Screen Sync",
+            width=106,
+            height=32,
+            corner_radius=8,
+            fg_color="transparent",
+            border_width=1,
+            border_color=COLORS["accent_dark"],
+            hover_color=COLORS["card_hover"],
+            text_color=COLORS["accent"],
+            font=font(10, "bold"),
+            command=self.open_screen_sync,
+        )
+        self.screen_button.grid(row=0, column=3, rowspan=2, padx=(0, 8))
 
         self.settings_button = ctk.CTkButton(
             header,
@@ -320,7 +349,7 @@ class StudioLightsApp(ctk.CTk):
             font=font(10, "bold"),
             command=self.open_settings,
         )
-        self.settings_button.grid(row=0, column=4, rowspan=2)
+        self.settings_button.grid(row=0, column=5, rowspan=2)
 
         self._bulk_buttons.extend([self.refresh_button])
 
@@ -1311,6 +1340,21 @@ class StudioLightsApp(ctk.CTk):
         self.flow_stop_button.grid(row=0, column=2, sticky="e", padx=(8, 10))
         self.flow_stop_button.grid_remove()
 
+        self.screen_stop_button = ctk.CTkButton(
+            bar,
+            text="■ STOP SYNC",
+            width=102,
+            height=24,
+            corner_radius=6,
+            fg_color=COLORS["danger_dark"],
+            hover_color="#4d1d29",
+            text_color=COLORS["danger"],
+            font=font(9, "bold"),
+            command=self.stop_screen_sync,
+        )
+        self.screen_stop_button.grid(row=0, column=3, sticky="e", padx=(0, 10))
+        self.screen_stop_button.grid_remove()
+
         self.latency_label = ctk.CTkLabel(
             bar,
             text="",
@@ -1318,7 +1362,7 @@ class StudioLightsApp(ctk.CTk):
             text_color=COLORS["dim"],
             anchor="e",
         )
-        self.latency_label.grid(row=0, column=3, sticky="e", padx=(0, 2))
+        self.latency_label.grid(row=0, column=4, sticky="e", padx=(0, 2))
 
     # ==================================================================== data
     def _startup(self) -> None:
@@ -1565,6 +1609,8 @@ class StudioLightsApp(ctk.CTk):
         self._push_flow_config()
 
     def _toggle_flow(self) -> None:
+        if self._screen_running:
+            self.stop_screen_sync(announce=False)
         if self._flow_running:
             self.stop_flow()
             return
@@ -1718,10 +1764,7 @@ class StudioLightsApp(ctk.CTk):
             self._set_status(message, "warning" if details else "muted")
 
     def _update_flow_ui_running(self) -> None:
-        if self._flow_running:
-            self.flow_stop_button.grid()
-        else:
-            self.flow_stop_button.grid_remove()
+        self._update_stop_buttons()
         self._update_apply_button_label()
 
     # ================================================================ commands
@@ -1871,6 +1914,8 @@ class StudioLightsApp(ctk.CTk):
         return True
 
     def apply_manual(self) -> None:
+        if self._screen_running:
+            self.stop_screen_sync(announce=False)
         if self._mode == "Flow":
             self._toggle_flow()
             return
@@ -1893,6 +1938,8 @@ class StudioLightsApp(ctk.CTk):
         if not selected:
             self._set_status("Seleziona almeno una luce.", "warning")
             return
+        if self._screen_running:
+            self.stop_screen_sync(announce=False)
         if self._flow_running:
             self.stop_flow(announce=False)
         targets = {
@@ -1905,6 +1952,8 @@ class StudioLightsApp(ctk.CTk):
         device = self._find_device(device_id)
         if device is None:
             return
+        if self._screen_running:
+            self.stop_screen_sync(announce=False)
         if self._flow_running:
             self.stop_flow(announce=False)
         old_state = self.states.get(device_id, LightState())
@@ -2074,6 +2123,8 @@ class StudioLightsApp(ctk.CTk):
         if not self.devices:
             self._set_status("Nessuna luce configurata.", "warning")
             return
+        if self._screen_running:
+            self.stop_screen_sync(announce=False)
 
         if scene.is_flow:
             selected = self._selected_ids()
@@ -2143,6 +2194,178 @@ class StudioLightsApp(ctk.CTk):
             self.settings_window.focus_force()
             return
         self.settings_window = SettingsWindow(self, self)
+
+    # =============================================================== screen sync
+    @property
+    def screen_running(self) -> bool:
+        return self._screen_running
+
+    def open_screen_sync(self) -> None:
+        if self.screen_window is not None and self.screen_window.winfo_exists():
+            self.screen_window.lift()
+            self.screen_window.focus_force()
+            return
+        self.screen_window = ScreenSyncWindow(self, self)
+
+    def start_screen_sync(self, window: Any | None = None) -> None:
+        if self._closing or self._screen_running:
+            return
+        if self._busy:
+            self._set_status("Attendi la fine del comando in corso.", "warning")
+            return
+        selected = [
+            device for device in self.devices if device.id in set(self._selected_ids())
+        ]
+        if not selected:
+            self._set_status(
+                "Seleziona almeno una luce per avviare lo Screen Sync.", "warning"
+            )
+            return
+        if self._flow_running:
+            self.stop_flow(announce=False)
+
+        config = window.get_config() if window is not None else self.screen_config.copy()
+        config.assign_default_zones(self.devices)
+        for index, device in enumerate(selected):
+            config.zone_map.setdefault(
+                device.id, index % config.zones if config.zones > 1 else -1
+            )
+        self.screen_config = config
+        self.screen_store.save(config)
+
+        zone_map = {
+            device.id: config.zone_for(device, index)
+            for index, device in enumerate(selected)
+        }
+        self.screen_runner.start(selected, config, zone_map)
+        self._screen_running = True
+        self._screen_devices = selected
+        self._screen_failed_seen = set()
+        self._screen_last_error = ""
+        if self._screen_health_job is not None:
+            try:
+                self.after_cancel(self._screen_health_job)
+            except tk.TclError:
+                pass
+        self._screen_health_job = self.after(1200, self._poll_screen_health)
+        self._update_stop_buttons()
+        if window is not None:
+            window.set_running(True)
+        monitor = config.monitor_label or f"monitor {config.monitor_index}"
+        self._set_status(
+            f"SYNC avviato · {len(selected)} luci · {monitor} · "
+            f"{config.zones} zone · {config.fps} fps",
+            "success",
+        )
+        self._update_selection_ui()
+
+    def stop_screen_sync(self, announce: bool = True) -> None:
+        if not self._screen_running:
+            return
+        if self._screen_health_job is not None:
+            try:
+                self.after_cancel(self._screen_health_job)
+            except tk.TclError:
+                pass
+            self._screen_health_job = None
+        last_targets = self.screen_runner.last_targets
+        details = self.screen_runner.failed_details
+        capture_error = self.screen_runner.capture_error
+        self.screen_runner.stop()
+        self._screen_running = False
+        offline = [
+            device_id
+            for device_id, (kind, _error) in details.items()
+            if kind in (ERROR_OFFLINE, ERROR_AUTH)
+        ]
+        for device_id in offline:
+            self.health[device_id] = False
+        for device_id, (rgb, brightness) in last_targets.items():
+            state = self.states.get(device_id)
+            if state is None:
+                continue
+            self.states[device_id] = state.copy(
+                power=True,
+                mode="colour",
+                rgb=rgb,
+                brightness=brightness,
+            )
+            row = self.rows.get(device_id)
+            if row is not None:
+                row.set_state(self.states[device_id], self.health.get(device_id))
+        self._update_stop_buttons()
+        if self.screen_window is not None and self.screen_window.winfo_exists():
+            self.screen_window.set_running(False)
+        self._schedule_save()
+        self._update_selection_ui()
+        if announce:
+            message = "■ Screen Sync fermato"
+            if offline:
+                message += f" · {len(offline)} luci offline"
+            if capture_error:
+                message += f" · {capture_error}"
+            self._set_status(
+                message,
+                "warning" if offline or capture_error else "muted",
+            )
+
+    def _poll_screen_health(self) -> None:
+        self._screen_health_job = None
+        if self._closing or not self._screen_running:
+            return
+        details = self.screen_runner.failed_details
+        new_ids = set(details) - self._screen_failed_seen
+        if new_ids:
+            self._screen_failed_seen.update(new_ids)
+            offline: list[str] = []
+            incompatible: list[str] = []
+            for device_id in new_ids:
+                kind, _error = details[device_id]
+                device = self._find_device(device_id)
+                name = device.name if device else device_id
+                if kind in (ERROR_OFFLINE, ERROR_AUTH):
+                    self.health[device_id] = False
+                    offline.append(name)
+                else:
+                    incompatible.append(name)
+                row = self.rows.get(device_id)
+                if row is not None:
+                    row.set_state(
+                        self.states.get(device_id, LightState()),
+                        self.health.get(device_id),
+                    )
+            self._update_online_chip()
+            self._update_selection_ui()
+            active = max(0, len(self._screen_devices) - len(details))
+            parts = [f"SYNC · {active}/{len(self._screen_devices)} luci attive"]
+            if offline:
+                parts.append("offline: " + ", ".join(offline))
+            if incompatible:
+                parts.append("non compatibili: " + ", ".join(incompatible))
+            self._set_status("⚠ " + " · ".join(parts), "warning")
+            if active == 0:
+                self.stop_screen_sync(announce=False)
+                self._set_status(
+                    "Screen Sync interrotto: nessuna luce raggiungibile.", "danger"
+                )
+                return
+        capture_error = self.screen_runner.capture_error
+        if capture_error and capture_error != self._screen_last_error:
+            self._screen_last_error = capture_error
+            self._set_status(f"⚠ Screen Sync · {capture_error}", "warning")
+        self._screen_health_job = self.after(1200, self._poll_screen_health)
+
+    def _update_stop_buttons(self) -> None:
+        if hasattr(self, "flow_stop_button"):
+            if self._flow_running:
+                self.flow_stop_button.grid()
+            else:
+                self.flow_stop_button.grid_remove()
+        if hasattr(self, "screen_stop_button"):
+            if self._screen_running:
+                self.screen_stop_button.grid()
+            else:
+                self.screen_stop_button.grid_remove()
 
     def device_id_exists(self, device_id: str, exclude: str | None = None) -> bool:
         return any(
@@ -2226,6 +2449,8 @@ class StudioLightsApp(ctk.CTk):
         return len(imported), warnings
 
     def _after_config_change(self) -> None:
+        if self._screen_running:
+            self.stop_screen_sync(announce=False)
         if self._flow_running:
             self.stop_flow(announce=False)
         self._save_now()
@@ -2234,6 +2459,8 @@ class StudioLightsApp(ctk.CTk):
         self._rebuild_scenes()
         self._update_online_chip()
         self._update_selection_ui()
+        if self.screen_window is not None and self.screen_window.winfo_exists():
+            self.screen_window.refresh_devices()
         if self.settings_window is not None and self.settings_window.winfo_exists():
             self.settings_window.refresh()
 
@@ -2501,7 +2728,10 @@ class StudioLightsApp(ctk.CTk):
         if not hasattr(self, "apply_selection_label"):
             return
         count = len(self._selected_ids())
-        if self._mode == "Flow":
+        if self._screen_running:
+            text = "Screen Sync attivo · STOP SYNC in basso a destra"
+            color = COLORS["success"]
+        elif self._mode == "Flow":
             if self._flow_running:
                 text = "Flow attivo · usa STOP FLOW in basso a destra"
                 color = COLORS["success"]
@@ -2545,6 +2775,8 @@ class StudioLightsApp(ctk.CTk):
     def _on_close(self) -> None:
         if self._closing:
             return
+        if self._screen_running:
+            self.stop_screen_sync(announce=False)
         if self._flow_running:
             self.stop_flow(announce=False)
         self._closing = True

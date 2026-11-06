@@ -20,6 +20,7 @@ artifacts/
 devices.json
 lights_config.json
 scenes.json
+screen_sync.json
 tinytuya.json
 tuya-raw.json
 snapshot.json

@@ -288,7 +288,7 @@ class FlowConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: Any) -> "FlowConfig":
+    def from_dict(cls, data: Any) -> FlowConfig:
         if not isinstance(data, dict):
             return cls()
         return cls(
@@ -299,7 +299,7 @@ class FlowConfig:
             brightness=data.get("brightness", 80),
         )
 
-    def copy(self) -> "FlowConfig":
+    def copy(self) -> FlowConfig:
         return FlowConfig.from_dict(self.to_dict())
 
 

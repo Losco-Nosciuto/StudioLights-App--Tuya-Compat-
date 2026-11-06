@@ -1,0 +1,15 @@
+{
+  "monitor_index": 1,
+  "monitor_label": "",
+  "zones": 3,
+  "sample_grid": 2,
+  "smoothing": 1.2,
+  "saturation": 1.25,
+  "brightness_min": 10,
+  "brightness_max": 80,
+  "fps": 8,
+  "ignore_hud": true,
+  "hold_on_black": true,
+  "preset": "Realistico",
+  "zone_map": {}
+}

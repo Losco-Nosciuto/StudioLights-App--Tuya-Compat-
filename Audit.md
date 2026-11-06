@@ -1,4 +1,4 @@
-# Audit tecnico — Studio Lights 1.1.0
+# Audit tecnico — Studio Lights 1.2.0
 
 **Data:** 6 novembre 2026
 **Ambiente di sviluppo:** Windows 11, Python 3.12.10, Tk 8.6
@@ -17,6 +17,7 @@ Applicazione desktop per controllare in LAN lampadine Tuya / Smart Life, con:
 - selezione multipla tramite checkbox;
 - bianco (luminosità + temperatura), colore RGB, scene hardware;
 - fade infinito **Flow** tra 8 colori, con velocità e sfasamento;
+- **Screen Sync** reattivo al monitor, con zone e punti di campionamento;
 - invio parallelo e atomico per luce;
 - scene globali, snapshot multi-luce e scene Flow salvabili da GUI;
 - gestione dispositivi e riallineamento IP;
@@ -48,6 +49,8 @@ sincronizzazione tra PC, scenari fuori dalla LAN, supporto a prese/termostati.
 | Snapshot multi-luce | `Scene(type="snapshot")` + `lights` | test GUI + persistenza |
 | Flow 8 colori, fade infinito, 0.5–5 s | `flow.py`, `FlowRunner`, tab Flow | 2 test motore + test GUI start/stop |
 | Scena Flow salvabile | `Scene(type="flow")` + `FlowConfig` | round-trip + GUI |
+| Screen Sync: monitor, zone, punti | `screen_sync.py`, `ui/screen_sync.py` | 7 test unitari + GUI live |
+| Cattura monitor con mss | `ScreenCapture`, `list_monitors` | cattura reale desktop, 42 frame |
 | Elimina / sovrascrivi scena | menu card + `delete_scene` / `overwrite_scene` | codice + dialogo conferma |
 | Timeout 1.5 s, retry 1 | `LightController.__init__`, `_get_bulb` | ispezione + test offline (~1.5 s) |
 | Barra stato / offline | `_finish_report`, `_update_online_chip` | smoke test con 3 luci offline |
@@ -67,6 +70,8 @@ main.py
        ├─ ui/dialogs.py   Settings / editor / scene / conferme
        ├─ config.py       LightStore / SceneStore (JSON atomico)
        ├─ flow.py         FlowRunner (thread, un frame in volo per luce)
+       ├─ screen_sync.py  ScreenCapture / ScreenAnalyzer / ScreenSyncRunner
+       ├─ ui/screen_sync.py finestra configurazione Screen Sync
        └─ controller.py   LightController
              ├─ ThreadPoolExecutor (32)
              ├─ una Lock per device
@@ -125,6 +130,28 @@ Il costo è traffico TCP proporzionale a `luci × fps`. Con 3 luci a 10 fps sono
 comandi/s, gestibili con socket persistenti; non è pensato per 20+ luci a 15 fps su Wi-Fi
 affollato. Il limite è documentato in README e nella UI.
 
+### Screen Sync: cattura, zone e smoothing
+
+Screen Sync è separato dal Flow palette ma riusa `submit_colour_frame`:
+
+- **Cattura**: `mss` cattura solo il monitor scelto; `PIL` crea il frame RGB e lo riduce
+  a 96×54. `mss` evita di catturare tutto il desktop e permette 5–15 fps con costo basso.
+- **Zone**: 3/5/7 fasce verticali; 1/4/9 punti per zona (griglia 1×1, 2×2, 3×3).
+- **Maschere**: rilevamento letterbox sulle righe nere e taglio HUD superiore 12% /
+  inferiore 15% (opzionale).
+- **Colore**: media RGB per zona → HSV; la saturazione viene aumentata dal preset, il
+  valore viene normalizzato a 1 e la luminosità del bulbo è pilotata dalla luminanza.
+- **Smoothing**: EMA con `alpha = 1 - exp(-dt / tau)`; `tau` 0.3–3 s.
+- **Mapping**: ogni luce è associata a una zona o a “Globale”; il runner invia i frame
+  con lo stesso payload completo delle scene statiche (switch → brightness → colour →
+  mode), un frame in volo per luce.
+- **Stop**: il pulsante nella barra di stato e la chiusura della finestra fermano il
+  runner; i comandi manuali e il Flow fermano Screen Sync. Il pallino health viene
+  aggiornato se una luce cade durante il sync.
+
+Limiti: `mss` usa GDI; fullscreen exclusive può dare frame neri, HDR non è tone-mappato,
+DRM non è supportato. La cattura è locale e i frame non vengono salvati.
+
 ### Rete e concorrenza
 
 - `set_socketTimeout(1.5)` e `set_socketRetryLimit(1)` su ogni bulb;
@@ -143,9 +170,12 @@ affollato. Il limite è documentato in README e nella UI.
 - `scenes.json` è indipendente dalle luci: le scene snapshot conservano gli ID e le luci
   mancanti vengono saltate al richiamo. Le scene Flow salvano palette, durata, fps,
   sfasamento e luminosità, non stati per singola luce.
-- I file runtime (`lights_config.json`, `scenes.json`, `devices.json`, `tinytuya.json`,
-  `tuya-raw.json`, `snapshot.json`) sono esclusi da Git perché possono contenere Local Key;
-  nel repository restano solo `lights_config.example.json` e `scenes.example.json`.
+- `screen_sync.json` salva monitor, zone, punti, smoothing, saturazione, limiti di
+  luminosità, preset e mappa luci → zone. È un file runtime ignorato da Git; esempio in
+  `screen_sync.example.json`.
+- I file runtime (`lights_config.json`, `scenes.json`, `screen_sync.json`, `devices.json`,
+  `tinytuya.json`, `tuya-raw.json`, `snapshot.json`) sono esclusi da Git perché possono
+  contenere Local Key; nel repository restano solo i modelli `*.example.json`.
 
 ---
 
@@ -160,6 +190,7 @@ affollato. Il limite è documentato in README e nella UI.
 | Un thread pool da 32 | scuole/studio con molte luci | picco di connessioni; configurabile in futuro |
 | Scene demo con fallback | provare subito l'app senza hardware | comportamento speciale solo per `demo: true` |
 | Flow software | palette e velocità libere, nessun limite firmware | traffico TCP e fluidità dipendenti dal modello |
+| Screen Sync software | reagisce a colori/luminanza reali senza AI | dipende da mss/borderless/HDR; non è semanticamente “pioggia” |
 | Un frame in volo per luce | una luce offline non blocca le altre | fps effettivi più bassi su firmware lento |
 | `demo` a livello root | evita di cancellare luci reali | editing manuale azzera il flag (scelta intenzionale) |
 | Nessun polling continuo | zero traffico quando inattivo | lo stato può essere vecchio finché non premi Aggiorna |
@@ -240,28 +271,31 @@ Per questo il progetto converte esplicitamente le percentuali.
 
 ```
 python -m compileall studiolights main.py tests      → OK
-python -m unittest discover -s tests -v               → 18 test, OK
+python -m unittest discover -s tests -v               → 26 test, OK
 ruff check . --exclude .venv --select F,E9            → OK
 ```
 
-I 18 test coprono: normalizzazione versioni, clamp/serializzazione stato, validazione
+I 26 test coprono: normalizzazione versioni, clamp/serializzazione stato, validazione
 device, conversioni Kelvin, round-trip scene global/snapshot/flow, FlowConfig e
 interpolazione colori, import wizard (lista e dict), creazione template, persistenza luci
 e scene, payload atomico colore/bianco/off, decodifica stato, classificazione errori,
-matching IP e motore Flow (frame stream, stop, sfasamento).
+matching IP, motore Flow e Screen Sync (config, zone, HUD/letterbox, smoothing, runner
+con capture finta).
 
 ### GUI
 
 Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 
-- layout principale, tab Bianco/Colore/Flow;
+- layout principale, tab Bianco/Colore/Flow e header Screen Sync;
 - selezione tramite checkbox e "seleziona tutte";
-- apertura impostazioni, editor luce, dialogo scena e picker palette Flow;
+- apertura impostazioni, editor luce, dialogo scena, picker palette Flow e finestra Screen Sync;
 - salvataggio snapshot (3 luci) e scena Flow con persistenza su `scenes.json`;
 - comando verso 3 luci demo irraggiungibili: 3 errori `Device Unreachable` in parallelo,
   stato "✕ Colore applicato · …", burst disabilitato e poi riabilitato, health a `False`;
 - Flow con controller fake: 18 frame in ~0.6 s, STOP visibile, 30 frame totali, stop
   immediato senza nuovi frame, colori finali diversi per sfasamento, nessun errore Tk;
+- Screen Sync con cattura reale del desktop e controller fake: 42 frame in ~1.8 s,
+  preview zone, STOP SYNC visibile, stati finali aggiornati, nessun errore Tk;
 - chiusura pulita, nessuna eccezione Python nei callback.
 
 ### Non eseguite
@@ -273,6 +307,8 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 - Test di scene hardware su firmware reali (Type A e Type B).
 - Test su macOS/Linux (la GUI è stata verificata solo su Windows).
 - Flow con 20+ luci o su Wi-Fi molto affollato.
+- Screen Sync su Crimson Desert/fullscreen exclusive/HDR e con contenuti DRM.
+- Screen Sync con più di 3 luci o su un PC con GPU/CPU limitate.
 
 ---
 
@@ -285,6 +321,10 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 | Scena hardware non supportata | errore firmware | alta | messaggio chiaro, indice/payload modificabili |
 | Firmware lento/throttling durante Flow | fade a scatti | media | fps 3/6/10/15/30, durata regolabile, un frame in volo |
 | Wi-Fi debole (-85 dBm) | timeout e frame persi | media | avvicinare AP, abbassare fps, health/stop |
+| Fullscreen exclusive/HDR in Screen Sync | frame neri o colori slavati | media | borderless, HDR off, messaggio in UI |
+| Cattura schermo costosa a 4K | calo fps nel gioco | media | downscale 96×54, 5–15 fps, mss |
+| Anti-cheat/DRM | cattura bloccata o dubbio | bassa | solo cattura OS esterna, nessuna iniezione |
+| Colori schermo poco fedeli sui bulbi | resa piatta | media | preset, saturazione, cap luminosità |
 | Socket persistente stale dopo sleep/router | primo comando fallito | media | retry manuale, drop socket e ricreazione |
 | Local key in chiaro su disco | accesso locale alle luci | insita nel protocollo | `.gitignore`, esempi sicuri, avviso in UI/README |
 | `deviceScan` bloccato da firewall | IP non aggiornati | media | inserimento manuale, log |
@@ -301,10 +341,12 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 - Le Local Key sono salvate in chiaro in `lights_config.json` / `devices.json` (formato
   imposto dal protocollo locale Tuya). Consiglio: disco cifrato e permessi NTFS ristretti.
 - `.gitignore` esclude tutti i file runtime con segreti (`devices.json`,
-  `lights_config.json`, `scenes.json`, `tinytuya.json`, `tuya-raw.json`, `snapshot.json`,
-  log e backup). Il repository traccia solo `lights_config.example.json` e
-  `scenes.example.json`, privi di dati reali. Verificato che la cronologia Git non
-  contenga il Device ID reale importato durante il collaudo.
+  `lights_config.json`, `scenes.json`, `screen_sync.json`, `tinytuya.json`,
+  `tuya-raw.json`, `snapshot.json`, log e backup). Il repository traccia solo i modelli
+  `*.example.json`, privi di dati reali. Verificato che la cronologia Git non contenga il
+  Device ID reale importato durante il collaudo.
+- Screen Sync cattura lo schermo **solo in RAM** e non salva né invia frame; nessuna
+  registrazione. La cattura è opt-in tramite il pulsante Avvia.
 - La configurazione demo inclusa non contiene segreti reali.
 - Non c'è esecuzione di codice remoto, telemetria o auto-update.
 
@@ -326,7 +368,11 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 10. Apri **Flow**, seleziona 3 luci, 2.5 s e 10 fps: verifica la fluidità; se a scatti prova
     6 fps e 4 s. Controlla che **STOP FLOW** fermi tutto e che i comandi manuali fermino il flow.
 11. Salva una scena Flow, richiamala e verifica palette/velocità.
-12. Riavvia l'app: lo stato noto e le scene devono essere coerenti.
+12. Apri **Screen Sync**, scegli il monitor secondario/principale corretto, 3 zone e
+    4 punti/zona; avvia e verifica che Studio SX/DX/Sfondo seguano le zone.
+13. Prova il gioco prima in borderless e poi in fullscreen/HDR: documenta eventuali frame neri.
+14. Chiudi/ferma Screen Sync e verifica che i comandi manuali e il Flow lo fermino.
+15. Riavvia l'app: stato noto, scene e configurazione Screen Sync devono essere coerenti.
 
 ---
 
@@ -336,6 +382,9 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 - Cache delle capability per device (evita il primo `status()` dopo ogni avvio).
 - Editor visuale dello snapshot con preview dei colori per luce.
 - Flow con palette riordinabile via drag&drop e preview animata nella card scena.
+- Screen Sync: backend Windows Graphics Capture, tone mapping HDR, multi-monitor avanzato.
+- Screen Sync: classificatore semantico leggero (pioggia/bosco/torcia) e preset automatici.
+- Screen Sync: più di 7 zone e mappa visuale drag&drop delle luci sullo schermo.
 - Sperimentare la modalità music/music-colour nativa per fade più fluidi su modelli compatibili.
 - Ordinamento/duplicazione scene e import/export.
 - Watchdog opzionale per refresh periodico e riconnessione automatica.
@@ -345,6 +394,16 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 ---
 
 ## 12. Changelog
+
+### 1.2.0 — 2026-11-06
+
+- **Screen Sync**: cattura monitor con mss, 3/5/7 zone, 1/4/9 punti/zona, maschere
+  HUD/letterbox, smoothing, saturazione, limiti di luminosità, preset e mappa luci.
+- Finestra di configurazione dedicata con monitor, anteprima live, avvio/stop e stop
+  nella barra di stato.
+- Screen Sync e Flow mutuamente esclusivi; i comandi manuali fermano il sync.
+- `mss` aggiunto alle dipendenze; `screen_sync.json` runtime ignorato da Git.
+- Test: **26** (inclusi 7 Screen Sync); smoke GUI con cattura reale e controller fake.
 
 ### 1.1.0 — 2026-11-06
 

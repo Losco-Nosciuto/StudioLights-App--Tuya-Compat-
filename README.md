@@ -33,6 +33,8 @@ Studio Lights risolve questo con:
   - **Scene HW**: invio delle scene native del firmware Tuya (indice + payload opzionale).
   - **Flow**: fade infinito tra 8 colori, 0.5–5 s per transizione, 3/6/10/15/30 fps,
     sfasamento tra le luci e stop immediato.
+- **Screen Sync**: le luci seguono il monitor del gioco, con 3/5/7 zone, 1/4/9 punti
+  di campionamento per zona, smoothing, saturazione, limiti di luminosità e preset.
 - **Scene Studio** salvabili/richiamabili con un clic, con tipo *Globale*, *Snapshot* o
   *Flow*. Sovrascrittura ed eliminazione dal menu `⋯` della card.
 - Import automatico di `devices.json` (wizard tinytuya) e import manuale dalle impostazioni.
@@ -42,9 +44,13 @@ Studio Lights risolve questo con:
 
 ## Galleria
 
-| Flow 8 colori | Modalità colore | Impostazioni luci |
-|---|---|---|
-| ![Flow](docs/flow.png) | ![Modalità colore](docs/colour.png) | ![Impostazioni](docs/settings.png) |
+| Flow 8 colori | Screen Sync |
+|---|---|
+| ![Flow](docs/flow.png) | ![Screen Sync](docs/screen_sync.png) |
+
+| Modalità colore | Impostazioni luci |
+|---|---|
+| ![Modalità colore](docs/colour.png) | ![Impostazioni](docs/settings.png) |
 
 
 ## Requisiti
@@ -60,6 +66,7 @@ Dipendenze Python (installate automaticamente da `run.bat` / `run.sh`):
 tinytuya>=1.20.0,<2
 customtkinter>=6.0.0,<7
 Pillow>=10.0.0,<14
+mss>=9.0.0,<11
 ```
 
 ## Avvio rapido
@@ -167,13 +174,34 @@ tramite il Device ID. Non serve rifare il wizard.
 
 Scorciatoie: `F5` aggiorna lo stato, `Ctrl+N` crea una scena.
 
+### Screen Sync: luci reattive allo schermo
+
+1. Seleziona le luci che vuoi animare.
+2. Clicca **Screen Sync** nell'header.
+3. Scegli il **monitor del gioco** (quello corretto, non il desktop).
+4. Imposta:
+   - **Zone** 3/5/7: quante fasce verticali analizzare;
+   - **Punti/zona** 1/4/9: quanti campioni per zona (griglia 1×1, 2×2, 3×3);
+   - **FPS** 5/8/10/15 dell'analisi e dell'invio;
+   - **Inseguimento** (0.3–3 s), saturazione, luminosità minima/massima;
+   - **Escludi HUD/barre** e **Mantieni colore su schermo nero**.
+5. Nella mappa **LUCI → ZONE**, assegna ogni lampadina a una zona o a **Globale**.
+6. Premi **AVVIA SYNC**. Il pulsante **■ STOP SYNC** appare nella barra di stato.
+
+Per i giochi: **borderless windowed**, HDR disattivato. In fullscreen exclusive alcuni
+giochi danno frame neri; in quel caso l'app lo segnala e non invia nero alle luci.
+Screen Sync e Flow sono mutuamente esclusivi; qualsiasi comando manuale ferma il sync.
+Le impostazioni vengono salvate in `screen_sync.json` (runtime, ignorato da Git) e sono
+ripristinate al riavvio. Le modifiche a monitor, numero di zone e mappa luci si applicano
+al successivo **Avvia Sync**; ferma e riavvia per cambiarle.
+
 ## File di configurazione
 
 Tutti i file stanno nella root del progetto e vengono creati automaticamente se mancanti.
-I file runtime (`lights_config.json`, `scenes.json`, `devices.json`, `tinytuya.json`,
+I file runtime (`lights_config.json`, `scenes.json`, `screen_sync.json`, `devices.json`, `tinytuya.json`,
 `tuya-raw.json`, `snapshot.json`) sono **ignorati da Git** perché possono contenere Local
-Key o dati personali. Nel repository trovi solo i modelli `lights_config.example.json` e
-`scenes.example.json`.
+Key o dati personali. Nel repository trovi solo i modelli `lights_config.example.json`,
+`scenes.example.json` e `screen_sync.example.json`.
 
 ### `lights_config.json`
 
@@ -248,7 +276,7 @@ non contiene stati per singola luce.
 - La **Local Key** è un segreto: chi la possiede e ha accesso alla LAN può controllare la
   lampadina. Non condividerla.
 - `.gitignore` esclude tutti i file runtime con key o dati personali: `devices.json`,
-  `lights_config.json`, `scenes.json`, `tinytuya.json`, `tuya-raw.json`, `snapshot.json`,
+  `lights_config.json`, `scenes.json`, `screen_sync.json`, `tinytuya.json`, `tuya-raw.json`, `snapshot.json`,
   log e backup. I file `*.example.json` tracciati contengono solo dati demo.
 - Non forzare l'aggiunta di questi file con `git add -f`: finirebbero nella cronologia.
 - L'app non contatta il cloud: parla solo con gli IP in `lights_config.json` sulla porta
@@ -261,6 +289,7 @@ main.py                      entry point + gestione errori/DPI
 run.bat / run.sh             avvio rapido con venv
 lights_config.example.json   modello luci + stato (demo)
 scenes.example.json          7 scene demo, inclusa Aurora Flow
+screen_sync.example.json     modello configurazione Screen Sync
 devices_template.json        modello per il wizard
 assets/                      icona app (PNG/ICO)
 docs/                        screenshot
@@ -269,14 +298,17 @@ studiolights/
   config.py                  persistenza atomica, import devices.json, seed
   controller.py              tinytuya, ThreadPoolExecutor, timeout, DPS atomici
   flow.py                    motore fade host-side, un frame in volo per luce
+  screen_sync.py             cattura mss, analisi zone, smoothing, streamer schermo
   defaults.py                dati demo
   theme.py                   palette dark
   util.py                    JSON, log, colore/Kelvin/interpolazione
   ui/app.py                  finestra principale, tab Flow, scene
+  ui/screen_sync.py          finestra di configurazione Screen Sync
   ui/widgets.py              riga luce, card scena
   ui/colorpicker.py          picker HSV con Pillow
   ui/dialogs.py              impostazioni, editor luce, scene, palette, conferme
-tests/test_core.py           18 test senza hardware
+tests/test_core.py           19 test senza hardware
+tests/test_screen_sync.py    7 test Screen Sync senza monitor/Tuya
 tools/make_icon.py           rigenera l'icona
 ```
 
@@ -287,8 +319,11 @@ tools/make_icon.py           rigenera l'icona
 ```
 
 I test coprono modelli, validazione, persistenza, import wizard, seed scene, payload DPS
-atomici, classificazione errori, matching IP, interpolazione colori e motore Flow
-(invio frame, stop, sfasamento). Non richiedono lampadine né GUI.
+atomici, classificazione errori, matching IP, interpolazione colori, motore Flow
+(invio frame, stop, sfasamento) e Screen Sync (config, zone, HUD, letterbox, smoothing,
+runner con capture finta). Non richiedono lampadine reali.
+
+Totale attuale: **26 test** (19 core + 7 Screen Sync).
 
 ## Troubleshooting
 
@@ -300,23 +335,33 @@ atomici, classificazione errori, matching IP, interpolazione colori e motore Flo
 | Scena HW non funziona | le scene sono specifiche del firmware; prova indici 1–4, poi il payload Type B. |
 | Flow a scatti | abbassa gli FPS (3 o 6), aumenta i secondi per transizione, avvicina le luci al router; il fade è generato dal PC, non dal firmware. |
 | Flow non parte | nessuna luce selezionata, oppure tutte offline; controlla la barra di stato. |
+| Screen Sync: schermo nero | il gioco è in fullscreen exclusive o HDR/DRM: passa a borderless e disattiva HDR. |
+| Screen Sync non reagisce | controlla monitor, mappa luci → zone, luci selezionate e che il gioco sia sul monitor scelto. |
+| Screen Sync a scatti | abbassa FPS e saturazione; alza l'inseguimento (2–3 s) o avvicina le luci al router. |
+| Screen Sync: colori piatti | alza la saturazione o usa il preset Neon; il firmware può limitare la fedeltà colore. |
 | Temperatura invertita | alcuni modelli mappano 0 = freddo. È documentato come limite noto. |
 | La GUI si blocca | non dovrebbe: i comandi sono in thread. Controlla `logs/studiolights.log`. |
 | La scansione non trova nulla | UDP broadcast bloccato dal firewall o rete guest/client isolation. |
 
 ## Limiti noti
 
-- Non è stato possibile validare il progetto contro lampadine fisiche in questo ambiente:
-  i test coprono logica, payload e GUI, ma va eseguito un test sul campo (vedi `Audit.md`).
+- Il progetto è stato provato con tre lampadine A60 RGB+CW reali; la resa fine di Flow e
+  Screen Sync sul firmware va comunque tarata. I test automatici coprono logica, payload,
+  GUI e analisi schermo.
 - Le scene hardware e la direzione della temperatura variano per modello/firmware.
 - Il colore viene inviato con il valore HSV scelto dal picker; la luminosità è un DP
   separato, quindi la resa percepita dipende dal firmware.
-- Il Flow è un'animazione software: 6–15 frame/s, con ACK per frame per mantenere la socket
+- Il Flow è un'animazione software: 3–30 frame/s, con ACK per frame per mantenere la socket
   sincronizzata. Su firmware lenti il fade può risultare a gradini. Non è una scena
   hardware e non continua se l'app viene chiusa.
+- Screen Sync cattura il monitor con `mss` ed è pensato per **Windows**. Non gestisce
+  contenuti DRM, HDR o fullscreen exclusive senza borderless; non fa riconoscimento
+  semantico della scena, ma campiona colori e luminosità.
+- La cattura schermo resta in RAM: nessun frame viene salvato o inviato in cloud.
 - Non c'è autenticazione locale: chi apre l'app sul PC può comandare le luci.
 
 ## Stack
 
 Python 3.12 · [tinytuya](https://github.com/jasonacox/tinytuya) 1.20 · CustomTkinter 6 ·
-Pillow · Tkinter · ThreadPoolExecutor · FlowRunner. Nessun servizio cloud a runtime.
+Pillow · mss · Tkinter · ThreadPoolExecutor · FlowRunner · ScreenSyncRunner.
+Nessun servizio cloud a runtime.
