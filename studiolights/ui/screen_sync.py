@@ -104,6 +104,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         self.scroll.grid_columnconfigure(0, weight=1)
 
         self._build_monitor_card()
+        self._build_zone_map_card()
         self._build_preview_card()
         self._build_settings_card()
         self._build_light_map_card()
@@ -119,6 +120,21 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             anchor="w",
         )
         self.footer_status.grid(row=0, column=0, sticky="w")
+        self.select_button = ctk.CTkButton(
+            footer,
+            text="Seleziona tutte le luci",
+            width=150,
+            height=34,
+            corner_radius=8,
+            fg_color="transparent",
+            border_width=1,
+            border_color=COLORS["border_light"],
+            hover_color=COLORS["card_hover"],
+            text_color=COLORS["muted"],
+            font=font(9, "bold"),
+            command=self._select_all_lights,
+        )
+        self.select_button.grid(row=0, column=1, sticky="e", padx=(8, 0))
         self.start_button = ctk.CTkButton(
             footer,
             text="AVVIA SYNC",
@@ -131,7 +147,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             font=font(11, "bold"),
             command=self._toggle,
         )
-        self.start_button.grid(row=0, column=1, sticky="e")
+        self.start_button.grid(row=0, column=2, sticky="e", padx=(8, 0))
 
     def _card(self) -> ctk.CTkFrame:
         card = ctk.CTkFrame(
@@ -199,6 +215,152 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             justify="left",
             wraplength=700,
         ).grid(row=2, column=0, sticky="w", padx=14, pady=(0, 10))
+
+    def _build_zone_map_card(self) -> None:
+        card = self._card()
+        head = ctk.CTkFrame(card, fg_color="transparent")
+        head.grid(row=0, column=0, sticky="ew", padx=14, pady=(10, 0))
+        head.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            head,
+            text="MAPPA SCHERMO → ZONE",
+            font=font(9, "bold"),
+            text_color=COLORS["dim"],
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+        self.zone_caption = ctk.CTkLabel(
+            head,
+            text="",
+            font=font(8),
+            text_color=COLORS["muted"],
+            anchor="e",
+        )
+        self.zone_caption.grid(row=0, column=1, sticky="e")
+        self.zone_canvas = tk.Canvas(
+            card,
+            height=118,
+            bg=COLORS["panel_alt"],
+            highlightthickness=0,
+            bd=0,
+        )
+        self.zone_canvas.grid(row=1, column=0, sticky="ew", padx=14, pady=(5, 12))
+        self.zone_canvas.bind("<Configure>", lambda _event: self._rebuild_zone_map())
+        ctk.CTkLabel(
+            card,
+            text=(
+                "Le zone sono fasce verticali uguali del monitor. "
+                "I punti/zona sono campioni dentro ogni fascia; HUD e barre nere "
+                "vengono esclusi se attivo."
+            ),
+            font=font(8),
+            text_color=COLORS["dim"],
+            anchor="w",
+            justify="left",
+            wraplength=700,
+        ).grid(row=2, column=0, sticky="w", padx=14, pady=(0, 10))
+
+    def _rebuild_zone_map(self) -> None:
+        if not hasattr(self, "zone_canvas"):
+            return
+        canvas = self.zone_canvas
+        canvas.delete("all")
+        width = max(300, canvas.winfo_width() or 700)
+        height = 118
+        zones = int(self.zones_menu.get()) if hasattr(self, "zones_menu") else 3
+        left, right = 12, width - 12
+        top, bottom = 26, height - 12
+        monitor = self.monitor_menu.get() if hasattr(self, "monitor_menu") else "Monitor"
+        canvas.create_text(
+            left,
+            8,
+            text=monitor,
+            anchor="nw",
+            fill=COLORS["dim"],
+            font=font(8),
+        )
+        global_names: list[str] = []
+        for index in range(zones):
+            x0 = left + (right - left) * index // zones
+            x1 = left + (right - left) * (index + 1) // zones
+            canvas.create_rectangle(
+                x0,
+                top,
+                x1,
+                bottom,
+                fill=COLORS["panel"],
+                outline=COLORS["border_light"],
+                width=1,
+            )
+            canvas.create_text(
+                x0 + 7,
+                top + 6,
+                text=f"Z{index + 1}",
+                anchor="nw",
+                fill=COLORS["accent"],
+                font=font(9, "bold"),
+            )
+            start_pct = round(100 * index / zones)
+            end_pct = round(100 * (index + 1) / zones)
+            canvas.create_text(
+                x0 + 7,
+                top + 23,
+                text=f"{start_pct}–{end_pct}%",
+                anchor="nw",
+                fill=COLORS["dim"],
+                font=font(8),
+            )
+            names = []
+            for device in self.app.devices:
+                menu = self._light_menus.get(device.id)
+                value = menu.get() if menu is not None else "Globale"
+                if value == f"Zona {index + 1}":
+                    names.append(device.name)
+                elif value == "Globale":
+                    global_names.append(device.name)
+            canvas.create_text(
+                x0 + 7,
+                bottom - 7,
+                text=", ".join(names)[:38] if names else "—",
+                anchor="sw",
+                fill=COLORS["text"] if names else COLORS["dim"],
+                font=font(8, "bold") if names else font(8),
+            )
+        unique_global = list(dict.fromkeys(global_names))
+        self.zone_caption.configure(
+            text=(
+                "Globale: " + ", ".join(unique_global)[:40]
+                if unique_global
+                else "Nessuna luce globale"
+            )
+        )
+
+    def _on_light_map_changed(self) -> None:
+        self._schedule_save()
+        self._rebuild_zone_map()
+
+    def _refresh_selection_footer(self) -> None:
+        if self.app.screen_running:
+            return
+        selected = len(self.app._selected_ids())
+        if selected:
+            self.footer_status.configure(
+                text=f"{selected} luci selezionate · premi Avvia.",
+                text_color=COLORS["muted"],
+            )
+            self.start_button.configure(state="normal")
+            self.select_button.configure(state="normal")
+        else:
+            self.footer_status.configure(
+                text="Seleziona almeno una luce (qui o nella finestra principale).",
+                text_color=COLORS["warning"],
+            )
+            self.start_button.configure(state="disabled")
+            self.select_button.configure(state="normal")
+
+    def _select_all_lights(self) -> None:
+        self.app.select_all()
+        self._refresh_selection_footer()
+        self._rebuild_zone_map()
 
     def _build_preview_card(self) -> None:
         card = self._card()
@@ -602,7 +764,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
                 dropdown_hover_color=COLORS["card_hover"],
                 text_color=COLORS["text"],
                 font=font(9),
-                command=lambda _value: self._schedule_save(),
+                command=lambda _value: self._on_light_map_changed(),
             )
             menu.grid(row=0, column=1, sticky="e")
             menu.set(value)
@@ -615,6 +777,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
                 text_color=COLORS["muted"],
                 anchor="w",
             ).grid(row=0, column=0, sticky="w")
+        self._rebuild_zone_map()
 
     # --------------------------------------------------------------- lifecycle
     def _present(self) -> None:
@@ -660,19 +823,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
                 box.configure(fg_color=COLORS["panel_alt"])
             self.preview_status.configure(text="nessun frame")
         if not self.app.screen_running:
-            selected = len(self.app._selected_ids())
-            if selected:
-                self.footer_status.configure(
-                    text=f"{selected} luci selezionate · premi Avvia.",
-                    text_color=COLORS["muted"],
-                )
-                self.start_button.configure(state="normal")
-            else:
-                self.footer_status.configure(
-                    text="Seleziona almeno una luce nella finestra principale.",
-                    text_color=COLORS["warning"],
-                )
-                self.start_button.configure(state="disabled")
+            self._refresh_selection_footer()
         self._preview_job = self.after(300, self._update_preview)
 
     def set_running(self, running: bool) -> None:
@@ -685,6 +836,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
                 text_color=COLORS["danger"],
                 state="normal",
             )
+            self.select_button.configure(state="disabled")
             self.footer_status.configure(
                 text="Screen Sync attivo.", text_color=COLORS["success"]
             )
@@ -696,12 +848,25 @@ class ScreenSyncWindow(ctk.CTkToplevel):
                 text_color=COLORS["accent_text"],
                 state="normal",
             )
+            self.select_button.configure(state="normal")
+            self._refresh_selection_footer()
 
     def _toggle(self) -> None:
         if self.app.screen_running:
             self.app.stop_screen_sync()
-        else:
-            self.app.start_screen_sync(self)
+            return
+        if not self.app._selected_ids():
+            self.footer_status.configure(
+                text="Nessuna luce selezionata: premi «Seleziona tutte le luci».",
+                text_color=COLORS["warning"],
+            )
+            return
+        started = self.app.start_screen_sync(self)
+        if not started and not self.app.screen_running:
+            self.footer_status.configure(
+                text="Sync non avviato: controlla le luci selezionate e riprova.",
+                text_color=COLORS["warning"],
+            )
 
     def refresh_devices(self) -> None:
         self._config.zone_map = {

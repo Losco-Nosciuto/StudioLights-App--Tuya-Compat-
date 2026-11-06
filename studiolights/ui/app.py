@@ -2207,12 +2207,12 @@ class StudioLightsApp(ctk.CTk):
             return
         self.screen_window = ScreenSyncWindow(self, self)
 
-    def start_screen_sync(self, window: Any | None = None) -> None:
+    def start_screen_sync(self, window: Any | None = None) -> bool:
         if self._closing or self._screen_running:
-            return
+            return False
         if self._busy:
             self._set_status("Attendi la fine del comando in corso.", "warning")
-            return
+            return False
         selected = [
             device for device in self.devices if device.id in set(self._selected_ids())
         ]
@@ -2220,7 +2220,7 @@ class StudioLightsApp(ctk.CTk):
             self._set_status(
                 "Seleziona almeno una luce per avviare lo Screen Sync.", "warning"
             )
-            return
+            return False
         if self._flow_running:
             self.stop_flow(announce=False)
 
@@ -2258,6 +2258,7 @@ class StudioLightsApp(ctk.CTk):
             "success",
         )
         self._update_selection_ui()
+        return True
 
     def stop_screen_sync(self, announce: bool = True) -> None:
         if not self._screen_running:

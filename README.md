@@ -176,17 +176,17 @@ Scorciatoie: `F5` aggiorna lo stato, `Ctrl+N` crea una scena.
 
 ### Screen Sync: luci reattive allo schermo
 
-1. Seleziona le luci che vuoi animare.
+1. Seleziona le luci che vuoi animare (o usa **Seleziona tutte le luci** nella finestra Screen Sync).
 2. Clicca **Screen Sync** nell'header.
-3. Scegli il **monitor del gioco** (quello corretto, non il desktop).
+3. Scegli il **monitor del gioco** (quello corretto, non il desktop). La **Mappa schermo → zone** mostra esattamente le fasce e le luci assegnate.
 4. Imposta:
-   - **Zone** 3/5/7: quante fasce verticali analizzare;
+   - **Zone** 3/5/7: quante fasce verticali uguali analizzare (Z1 = sinistra, Z2 = centro, Z3 = destra con 3 zone);
    - **Punti/zona** 1/4/9: quanti campioni per zona (griglia 1×1, 2×2, 3×3);
    - **FPS** 5/8/10/15 dell'analisi e dell'invio;
    - **Inseguimento** (0.3–3 s), saturazione, luminosità minima/massima;
    - **Escludi HUD/barre** e **Mantieni colore su schermo nero**.
 5. Nella mappa **LUCI → ZONE**, assegna ogni lampadina a una zona o a **Globale**.
-6. Premi **AVVIA SYNC**. Il pulsante **■ STOP SYNC** appare nella barra di stato.
+6. Premi **AVVIA SYNC**. Se non hai selezionato luci, il pulsante resta disabilitato e la finestra te lo dice. Il pulsante **■ STOP SYNC** appare nella barra di stato.
 
 Per i giochi: **borderless windowed**, HDR disattivato. In fullscreen exclusive alcuni
 giochi danno frame neri; in quel caso l'app lo segnala e non invia nero alle luci.
