@@ -221,6 +221,12 @@ La luminosità usa una curva percettiva con un “toe” sul nero: una schermata
 al minimo. Alza **Curva buio** se vuoi gli scuri ancora più cupi; abbassala se preferisci
 più luce nelle scene buie.
 
+Per non farsi ingannare dai testi chiari su sfondi scuri, la luminosità usa anche la
+**luminanza mediana** del frame oltre alla media: una finestra piena di testo bianco
+su sfondo nero resta scura e non accende le luci. L’anteprima dei sensori mostra il
+colore **già scalato per la luminosità reale**, quindi su una schermata nera i riquadri
+appaiono quasi neri (non bianchi).
+
 Per i giochi: **borderless windowed**, HDR disattivato. In fullscreen exclusive alcuni
 giochi danno frame neri; in quel caso l'app lo segnala e non invia nero alle luci.
 Screen Sync e Flow sono mutuamente esclusivi; qualsiasi comando manuale ferma il sync.
@@ -341,7 +347,7 @@ studiolights/
   ui/colorpicker.py          picker HSV con Pillow
   ui/dialogs.py              impostazioni, editor luce, scene, palette, conferme
 tests/test_core.py           19 test senza hardware
-tests/test_screen_sync.py    14 test Screen Sync senza monitor/Tuya
+tests/test_screen_sync.py    15 test Screen Sync senza monitor/Tuya
 tools/make_icon.py           rigenera l'icona
 ```
 
@@ -357,7 +363,7 @@ atomici, classificazione errori, matching IP, interpolazione colori, motore Flow
 letterbox, smoothing, bianco dedicato, saturazione, curva buio, runner con capture
 finta, turbo con fallback). Non richiedono lampadine reali.
 
-Totale attuale: **33 test** (19 core + 14 Screen Sync).
+Totale attuale: **34 test** (19 core + 15 Screen Sync).
 
 ## Troubleshooting
 
@@ -379,6 +385,7 @@ Totale attuale: **33 test** (19 core + 14 Screen Sync).
 | Screen Sync: bianco che tende al blu/viola | attiva **Bianco dedicato per colori neutri**: i bianchi passano ai LED bianchi invece che all'RGB sintetizzato. Se resta blu, verifica che la luce riceva davvero i comandi (Local Key valida). |
 | Screen Sync: colori chiari sbiaditi | abbassa la **luminosità massima** a ~75–85%: sopra quella soglia il bulbo mescola i LED bianchi e desatura i colori. |
 | Screen Sync: luci accese su schermata nera | alza **Curva buio** (es. 1.3–1.5), metti **Luminosità minima 0%** e disattiva **Mantieni colore su schermo nero**. |
+| Screen Sync: anteprima sensori sempre bianca | l’anteprima ora è scalata per la luminosità reale: se resta chiara, la zona include molto testo/pannelli chiari; usa sensori più piccoli sulle aree scure. |
 | Temperatura invertita | alcuni modelli mappano 0 = freddo. È documentato come limite noto. |
 | La GUI si blocca | non dovrebbe: i comandi sono in thread. Controlla `logs/studiolights.log`. |
 | La scansione non trova nulla | UDP broadcast bloccato dal firewall o rete guest/client isolation. |

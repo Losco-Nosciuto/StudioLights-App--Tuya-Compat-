@@ -1208,12 +1208,18 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         if frame is not None:
             for index, box in enumerate(self._preview_boxes):
                 target = frame.zones[index % len(frame.zones)] if frame.zones else frame.global_target
-                color = f"#{target.rgb[0]:02x}{target.rgb[1]:02x}{target.rgb[2]:02x}"
+                factor = max(0.04, min(1.0, target.brightness / 100.0))
+                dimmed = tuple(max(0, min(255, round(channel * factor))) for channel in target.rgb)
+                color = f"#{dimmed[0]:02x}{dimmed[1]:02x}{dimmed[2]:02x}"
                 box.configure(fg_color=color)
                 if index < len(self._preview_labels):
                     self._preview_labels[index].configure(
                         text=f"Z{index + 1} · {target.brightness}%",
-                        text_color="#101418" if target.luma > 0.45 else COLORS["text"],
+                        text_color=(
+                            "#101418"
+                            if factor > 0.55 and target.luma > 0.45
+                            else COLORS["text"]
+                        ),
                     )
             self.preview_status.configure(
                 text=(

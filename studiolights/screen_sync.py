@@ -399,8 +399,18 @@ class ScreenAnalyzer:
     ) -> ScreenFrame:
         started = time.perf_counter()
         small = image.resize((ANALYSIS_WIDTH, ANALYSIS_HEIGHT), Image.Resampling.BILINEAR)
+        gray = small.convert("L")
+        gray_full = image.convert("L")
+        frame_mean = ImageStat.Stat(gray).mean[0] / 255.0
+        frame_median = ImageStat.Stat(gray_full).median[0] / 255.0
+        dark_factor = 1.0
+        if frame_mean > 0.001:
+            # A dark desktop full of white text has a high mean but a low median:
+            # dim it down so it does not keep the bulbs lit.
+            dark_factor = max(0.35, min(1.0, frame_median / frame_mean))
         if config.sampling_mode == "zones":
             raw_zones: list[tuple[tuple[float, float, float], float]] = []
+            raw_lumas: list[float] = []
             for sensor in config.sensor_zones:
                 box = (
                     int(sensor.x * small.width),
@@ -408,21 +418,24 @@ class ScreenAnalyzer:
                     int((sensor.x + sensor.w) * small.width),
                     int((sensor.y + sensor.h) * small.height),
                 )
-                raw_zones.append(self._zone_mean(small, box, config.sample_grid))
+                color, mean_luma = self._zone_mean(small, box, config.sample_grid)
+                raw_zones.append((color, mean_luma))
+                raw_lumas.append(mean_luma * dark_factor)
             if raw_zones:
                 if len(raw_zones) == 1:
-                    global_raw = raw_zones[0]
+                    global_color = raw_zones[0][0]
                 else:
-                    global_raw = (
-                        (
-                            sum(item[0][0] for item in raw_zones) / len(raw_zones),
-                            sum(item[0][1] for item in raw_zones) / len(raw_zones),
-                            sum(item[0][2] for item in raw_zones) / len(raw_zones),
-                        ),
-                        sum(item[1] for item in raw_zones) / len(raw_zones),
+                    global_color = (
+                        sum(item[0][0] for item in raw_zones) / len(raw_zones),
+                        sum(item[0][1] for item in raw_zones) / len(raw_zones),
+                        sum(item[0][2] for item in raw_zones) / len(raw_zones),
                     )
+                global_mean_luma = sum(item[1] for item in raw_zones) / len(raw_zones)
+                global_luma = sum(raw_lumas) / len(raw_lumas)
             else:
-                global_raw = ((0.0, 0.0, 0.0), 0.0)
+                global_color = (0.0, 0.0, 0.0)
+                global_mean_luma = 0.0
+                global_luma = 0.0
         else:
             content = _content_box(small)
             left, top, right, bottom = content
@@ -437,28 +450,32 @@ class ScreenAnalyzer:
 
             zone_count = max(1, config.zones)
             raw_zones = []
+            raw_lumas = []
             for zone_index in range(zone_count):
                 zone_left = left + (right - left) * zone_index // zone_count
                 zone_right = left + (right - left) * (zone_index + 1) // zone_count
-                raw_zones.append(
-                    self._zone_mean(
-                        small,
-                        (zone_left, hud_top, zone_right, hud_bottom),
-                        config.sample_grid,
-                    )
-                )
+                box = (zone_left, hud_top, zone_right, hud_bottom)
+                color, mean_luma = self._zone_mean(small, box, config.sample_grid)
+                raw_zones.append((color, mean_luma))
+                raw_lumas.append(mean_luma * dark_factor)
             global_raw = self._zone_mean(small, (left, hud_top, right, hud_bottom), 1)
+            global_color = global_raw[0]
+            global_mean_luma = global_raw[1]
+            global_luma = global_mean_luma * dark_factor
 
         if not self._state or len(self._state) != len(raw_zones):
-            self._state = [_SampleState(rgb=color, luma=luma) for color, luma in raw_zones]
-            self._global_state = _SampleState(*global_raw)
+            self._state = [
+                _SampleState(rgb=color, luma=luma)
+                for (color, _mean_luma), luma in zip(raw_zones, raw_lumas)
+            ]
+            self._global_state = _SampleState(rgb=global_color, luma=global_luma)
         alpha = 1.0
         if dt > 0:
             alpha = 1.0 - pow(2.718281828, -dt / max(0.05, config.smoothing))
             alpha = max(0.05, min(1.0, alpha))
 
         smoothed: list[_SampleState] = []
-        for previous, (color, luma) in zip(self._state, raw_zones):
+        for previous, (color, _mean_luma), luma in zip(self._state, raw_zones, raw_lumas):
             current = _SampleState(
                 rgb=tuple(previous.rgb[i] + (color[i] - previous.rgb[i]) * alpha for i in range(3)),  # type: ignore[arg-type]
                 luma=previous.luma + (luma - previous.luma) * alpha,
@@ -467,15 +484,15 @@ class ScreenAnalyzer:
         assert self._global_state is not None
         global_smoothed = _SampleState(
             rgb=tuple(
-                self._global_state.rgb[i] + (global_raw[0][i] - self._global_state.rgb[i]) * alpha
+                self._global_state.rgb[i] + (global_color[i] - self._global_state.rgb[i]) * alpha
                 for i in range(3)
             ),  # type: ignore[arg-type]
-            luma=self._global_state.luma + (global_raw[1] - self._global_state.luma) * alpha,
+            luma=self._global_state.luma + (global_luma - self._global_state.luma) * alpha,
         )
         self._state = smoothed
         self._global_state = global_smoothed
 
-        black = global_raw[1] < 0.012
+        black = global_mean_luma < 0.012
         targets = [self._target(state, config) for state in smoothed]
         global_target = self._target(global_smoothed, config)
         frame = ScreenFrame(
