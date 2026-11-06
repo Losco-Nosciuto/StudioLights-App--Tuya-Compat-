@@ -194,7 +194,7 @@ class ConfirmDialog(BaseDialog):
 
 class AlertDialog(BaseDialog):
     def __init__(self, master: ctk.CTkBaseClass, title: str, message: str) -> None:
-        super().__init__(master, title, 500, 250)
+        super().__init__(master, title, 500, 300)
         ctk.CTkLabel(
             self,
             text=title,
@@ -1119,9 +1119,12 @@ class SettingsWindow(ctk.CTkToplevel):
             return
         self.refresh()
         if count:
+            displayed_warnings = list(warnings[:6])
+            if len(warnings) > 6:
+                displayed_warnings.append(f"… e altre {len(warnings) - 6} note (vedi il log).")
             message = f"Importate {count} luci da devices.json."
-            if warnings:
-                message += "\n\n" + "\n".join(warnings)
+            if displayed_warnings:
+                message += "\n\n" + "\n".join(displayed_warnings)
             self._set_action(message.replace("\n", " "), COLORS["success"])
             AlertDialog.show(self, "Import completato", message)
         else:
