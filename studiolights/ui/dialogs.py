@@ -565,6 +565,42 @@ class LightEditorDialog(BaseDialog):
             text_color=COLORS["text"],
             anchor="w",
         ).pack(fill="x", padx=26, pady=(22, 2))
+        header_actions = ctk.CTkFrame(self, fg_color="transparent")
+        header_actions.pack(fill="x", padx=26, pady=(0, 2))
+        header_actions.grid_columnconfigure(0, weight=1)
+        ctk.CTkButton(
+            header_actions,
+            text="Salva",
+            width=84,
+            height=30,
+            corner_radius=8,
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            text_color=COLORS["accent_text"],
+            font=font(11, "bold"),
+            command=self._save,
+        ).grid(row=0, column=1, sticky="e")
+        ctk.CTkButton(
+            header_actions,
+            text="Annulla",
+            width=80,
+            height=30,
+            corner_radius=8,
+            fg_color="transparent",
+            border_width=1,
+            border_color=COLORS["border_light"],
+            hover_color=COLORS["card_hover"],
+            text_color=COLORS["muted"],
+            font=font(10, "bold"),
+            command=self.close,
+        ).grid(row=0, column=2, sticky="e", padx=(8, 0))
+        ctk.CTkLabel(
+            header_actions,
+            text="Invio o Ctrl+S per salvare",
+            font=font(8),
+            text_color=COLORS["dim"],
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w")
         ctk.CTkLabel(
             self,
             text="I dati sono disponibili nel devices.json del wizard tinytuya "
@@ -742,35 +778,13 @@ class LightEditorDialog(BaseDialog):
             wraplength=550,
         ).pack(fill="x", padx=10, pady=8)
 
-        footer = ctk.CTkFrame(self, fg_color="transparent")
-        footer.pack(side="bottom", fill="x", padx=26, pady=20)
-        ctk.CTkButton(
-            footer,
-            text="Annulla",
-            width=100,
-            height=36,
-            corner_radius=8,
-            fg_color="transparent",
-            border_width=1,
-            border_color=COLORS["border_light"],
-            hover_color=COLORS["card_hover"],
-            text_color=COLORS["muted"],
-            command=self.close,
-        ).pack(side="right", padx=(8, 0))
-        ctk.CTkButton(
-            footer,
-            text="Salva luce",
-            width=140,
-            height=36,
-            corner_radius=8,
-            fg_color=COLORS["accent"],
-            hover_color=COLORS["accent_hover"],
-            text_color=COLORS["accent_text"],
-            font=font(12, "bold"),
-            command=self._save,
-        ).pack(side="right")
-
         self.name_entry.focus_set()
+        self.bind("<Control-Return>", lambda _event: self._save())
+        self.bind("<Control-s>", lambda _event: self._save())
+        self.bind("<Control-S>", lambda _event: self._save())
+        for entry in (self.name_entry, self.id_entry, self.ip_entry, self.key_entry):
+            entry.bind("<Return>", lambda _event: self._save())
+            entry.bind("<KP_Enter>", lambda _event: self._save())
 
     def _field(self, label: str, placeholder: str) -> ctk.CTkEntry:
         ctk.CTkLabel(
