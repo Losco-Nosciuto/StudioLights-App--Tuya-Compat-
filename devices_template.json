@@ -1,0 +1,34 @@
+{
+  "_instructions": [
+    "Questo file è solo un modello: NON viene letto dall'app.",
+    "1) Installa le dipendenze: pip install -r requirements.txt",
+    "2) Esegui: python -m tinytuya wizard",
+    "3) Salva il devices.json generato nella root del progetto (accanto a main.py)",
+    "4) Apri Studio Lights > Impostazioni > Importa devices.json",
+    "Le Local Key sono segreti: non committare devices.json su Git."
+  ],
+  "version": "3.3",
+  "devices": [
+    {
+      "name": "Luce SX",
+      "id": "bf00000000000000000001",
+      "ip": "192.168.1.101",
+      "key": "0123456789abcdef",
+      "version": "3.3"
+    },
+    {
+      "name": "Luce DX",
+      "id": "bf00000000000000000002",
+      "ip": "192.168.1.102",
+      "key": "fedcba9876543210",
+      "version": "3.4"
+    },
+    {
+      "name": "Luce Sfondo",
+      "id": "bf00000000000000000003",
+      "ip": "",
+      "key": "0a1b2c3d4e5f6071",
+      "version": "3.5"
+    }
+  ]
+}

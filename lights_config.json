@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "demo": true,
+  "updated_at": "2026-11-06T09:44:39+00:00",
+  "devices": [
+    {
+      "name": "Luce SX",
+      "id": "bfaa11bb22cc33dd44e1",
+      "ip": "192.168.1.101",
+      "key": "0123456789abcdef",
+      "version": "3.3",
+      "state": {
+        "power": true,
+        "mode": "colour",
+        "brightness": 80,
+        "colortemp": 50,
+        "rgb": [
+          0,
+          220,
+          255
+        ],
+        "hw_scene": null,
+        "hw_data": null
+      }
+    },
+    {
+      "name": "Luce DX",
+      "id": "bfaa11bb22cc33dd44e2",
+      "ip": "192.168.1.102",
+      "key": "fedcba9876543210",
+      "version": "3.3",
+      "state": {
+        "power": true,
+        "mode": "colour",
+        "brightness": 80,
+        "colortemp": 50,
+        "rgb": [
+          175,
+          35,
+          255
+        ],
+        "hw_scene": null,
+        "hw_data": null
+      }
+    },
+    {
+      "name": "Luce Sfondo",
+      "id": "bfaa11bb22cc33dd44e3",
+      "ip": "192.168.1.103",
+      "key": "0a1b2c3d4e5f6071",
+      "version": "3.4",
+      "state": {
+        "power": true,
+        "mode": "white",
+        "brightness": 30,
+        "colortemp": 35,
+        "rgb": [
+          255,
+          200,
+          150
+        ],
+        "hw_scene": null,
+        "hw_data": null
+      }
+    }
+  ]
+}

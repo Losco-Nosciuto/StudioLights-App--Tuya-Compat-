@@ -1,0 +1,214 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-11-06T09:26:28+00:00",
+  "scenes": [
+    {
+      "id": "scn_lavoro_neutro",
+      "name": "Lavoro Neutro",
+      "type": "global",
+      "demo": false,
+      "created_at": "2026-11-06T09:26:28+00:00",
+      "updated_at": "2026-11-06T09:26:28+00:00",
+      "state": {
+        "power": true,
+        "mode": "white",
+        "brightness": 85,
+        "colortemp": 55,
+        "rgb": [
+          255,
+          200,
+          150
+        ],
+        "hw_scene": null,
+        "hw_data": null
+      }
+    },
+    {
+      "id": "scn_relax_caldo",
+      "name": "Relax Caldo",
+      "type": "global",
+      "demo": false,
+      "created_at": "2026-11-06T09:26:28+00:00",
+      "updated_at": "2026-11-06T09:26:28+00:00",
+      "state": {
+        "power": true,
+        "mode": "white",
+        "brightness": 35,
+        "colortemp": 8,
+        "rgb": [
+          255,
+          200,
+          150
+        ],
+        "hw_scene": null,
+        "hw_data": null
+      }
+    },
+    {
+      "id": "scn_cyberpunk_dual",
+      "name": "Cyberpunk Dual-Tone",
+      "type": "snapshot",
+      "demo": true,
+      "created_at": "2026-11-06T09:26:28+00:00",
+      "updated_at": "2026-11-06T09:26:28+00:00",
+      "state": {
+        "power": true,
+        "mode": "colour",
+        "brightness": 85,
+        "colortemp": 50,
+        "rgb": [
+          0,
+          225,
+          255
+        ],
+        "hw_scene": null,
+        "hw_data": null
+      },
+      "lights": {
+        "bfaa11bb22cc33dd44e1": {
+          "power": true,
+          "mode": "colour",
+          "brightness": 85,
+          "colortemp": 50,
+          "rgb": [
+            0,
+            225,
+            255
+          ],
+          "hw_scene": null,
+          "hw_data": null
+        },
+        "bfaa11bb22cc33dd44e2": {
+          "power": true,
+          "mode": "colour",
+          "brightness": 85,
+          "colortemp": 50,
+          "rgb": [
+            255,
+            25,
+            190
+          ],
+          "hw_scene": null,
+          "hw_data": null
+        },
+        "bfaa11bb22cc33dd44e3": {
+          "power": true,
+          "mode": "colour",
+          "brightness": 40,
+          "colortemp": 50,
+          "rgb": [
+            25,
+            15,
+            110
+          ],
+          "hw_scene": null,
+          "hw_data": null
+        }
+      }
+    },
+    {
+      "id": "scn_full_red",
+      "name": "Full Red",
+      "type": "global",
+      "demo": false,
+      "created_at": "2026-11-06T09:26:28+00:00",
+      "updated_at": "2026-11-06T09:26:28+00:00",
+      "state": {
+        "power": true,
+        "mode": "colour",
+        "brightness": 100,
+        "colortemp": 50,
+        "rgb": [
+          255,
+          0,
+          0
+        ],
+        "hw_scene": null,
+        "hw_data": null
+      }
+    },
+    {
+      "id": "scn_deep_purple",
+      "name": "Deep Purple",
+      "type": "global",
+      "demo": false,
+      "created_at": "2026-11-06T09:26:28+00:00",
+      "updated_at": "2026-11-06T09:26:28+00:00",
+      "state": {
+        "power": true,
+        "mode": "colour",
+        "brightness": 65,
+        "colortemp": 50,
+        "rgb": [
+          110,
+          30,
+          200
+        ],
+        "hw_scene": null,
+        "hw_data": null
+      }
+    },
+    {
+      "id": "scn_cinema_soft",
+      "name": "Cinema Soft",
+      "type": "snapshot",
+      "demo": true,
+      "created_at": "2026-11-06T09:26:28+00:00",
+      "updated_at": "2026-11-06T09:26:28+00:00",
+      "state": {
+        "power": true,
+        "mode": "colour",
+        "brightness": 20,
+        "colortemp": 50,
+        "rgb": [
+          255,
+          135,
+          40
+        ],
+        "hw_scene": null,
+        "hw_data": null
+      },
+      "lights": {
+        "bfaa11bb22cc33dd44e1": {
+          "power": true,
+          "mode": "colour",
+          "brightness": 20,
+          "colortemp": 50,
+          "rgb": [
+            255,
+            135,
+            40
+          ],
+          "hw_scene": null,
+          "hw_data": null
+        },
+        "bfaa11bb22cc33dd44e2": {
+          "power": true,
+          "mode": "colour",
+          "brightness": 18,
+          "colortemp": 50,
+          "rgb": [
+            20,
+            45,
+            180
+          ],
+          "hw_scene": null,
+          "hw_data": null
+        },
+        "bfaa11bb22cc33dd44e3": {
+          "power": false,
+          "mode": "white",
+          "brightness": 10,
+          "colortemp": 20,
+          "rgb": [
+            255,
+            200,
+            150
+          ],
+          "hw_scene": null,
+          "hw_data": null
+        }
+      }
+    }
+  ]
+}
