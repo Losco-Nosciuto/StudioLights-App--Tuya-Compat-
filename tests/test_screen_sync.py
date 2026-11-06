@@ -15,6 +15,8 @@ from studiolights.screen_sync import (
     ScreenSyncConfig,
     ScreenSyncRunner,
     ScreenSyncStore,
+    SensorZone,
+    default_sensor_zones,
     list_monitors,
 )
 
@@ -22,6 +24,7 @@ from studiolights.screen_sync import (
 class ScreenConfigTests(unittest.TestCase):
     def test_clamps_and_roundtrip(self) -> None:
         config = ScreenSyncConfig(
+            sampling_mode="bands",
             zones=9,
             sample_grid=9,
             smoothing=9,
@@ -36,12 +39,34 @@ class ScreenConfigTests(unittest.TestCase):
         self.assertEqual(config.sample_points, 9)
         self.assertEqual(config.smoothing, 3.0)
         self.assertEqual(config.saturation, 2.0)
-        self.assertEqual(config.fps, 30)
+        self.assertEqual(config.fps, 60)
         self.assertGreaterEqual(config.brightness_max, config.brightness_min)
         self.assertEqual(config.zone_map["a"], 6)
         self.assertEqual(config.zone_map["b"], -1)
         again = ScreenSyncConfig.from_dict(config.to_dict())
         self.assertEqual(again.to_dict(), config.to_dict())
+
+    def test_sensor_zones_are_clamped(self) -> None:
+        zone = SensorZone(x=-2, y=0.9, w=2, h=0.001)
+        self.assertEqual(zone.x, 0.0)
+        self.assertEqual(zone.w, 1.0)
+        self.assertGreaterEqual(zone.h, 0.02)
+        self.assertLessEqual(zone.y + zone.h, 1.0)
+        zones = default_sensor_zones(4)
+        self.assertEqual(len(zones), 4)
+        self.assertTrue(all(0.0 <= z.x <= 1.0 - z.w for z in zones))
+
+    def test_zones_mode_uses_sensor_count(self) -> None:
+        zones = [SensorZone(x=0.0, y=0.0, w=0.2, h=0.2)] * 5
+        config = ScreenSyncConfig(sampling_mode="zones", zones=3, sensor_zones=zones)
+        self.assertEqual(config.zone_count, 5)
+        self.assertEqual(len(config.sensor_zones), 5)
+        config.zone_map = {"a": 4}
+        self.assertEqual(config.copy().zone_map["a"], 4)
+        bands = ScreenSyncConfig.from_dict(config.to_dict())
+        bands.sampling_mode = "bands"
+        bands.__post_init__()
+        self.assertEqual(bands.zone_count, 3)
 
     def test_default_zones_and_store(self) -> None:
         devices = [
@@ -103,6 +128,7 @@ class ScreenAnalyzerTests(unittest.TestCase):
         draw.rectangle((0, 10, 95, 43), fill=(0, 0, 255))
         draw.rectangle((0, 0, 95, 4), fill=(255, 255, 255))
         config = ScreenSyncConfig(
+            sampling_mode="bands",
             zones=3,
             sample_grid=1,
             ignore_hud=True,
@@ -136,13 +162,33 @@ class FakeCapture:
 
 
 class FakeController:
-    def __init__(self) -> None:
+    def __init__(self, music_supported: bool = True) -> None:
         self.calls: list[tuple[str, tuple[int, int, int], int]] = []
+        self.music_calls: list[tuple[str, tuple[int, int, int], int]] = []
+        self.music_supported = music_supported
 
     def submit_colour_frame(self, device, rgb, brightness):
         future: Future = Future()
         future.set_result(LightResult(device.id, device.name, True))
         self.calls.append((device.id, rgb, brightness))
+        return future
+
+    def submit_music_frame(self, device, rgb, brightness):
+        future: Future = Future()
+        if self.music_supported:
+            future.set_result(LightResult(device.id, device.name, True))
+            self.music_calls.append((device.id, rgb, brightness))
+        else:
+            future.set_result(
+                LightResult(
+                    device.id,
+                    device.name,
+                    False,
+                    error="DP28 non supportato",
+                    kind="unsupported",
+                )
+            )
+            self.music_calls.append((device.id, rgb, brightness))
         return future
 
 
@@ -157,7 +203,11 @@ class ScreenRunnerTests(unittest.TestCase):
             LightDevice("B", "b", "192.168.1.11", "0123456789abcdef", "3.3"),
         ]
         config = ScreenSyncConfig(
-            zones=2,
+            sampling_mode="zones",
+            sensor_zones=[
+                SensorZone(x=0.0, y=0.0, w=0.5, h=1.0),
+                SensorZone(x=0.5, y=0.0, w=0.5, h=1.0),
+            ],
             sample_grid=1,
             ignore_hud=False,
             smoothing=0.3,
@@ -174,9 +224,33 @@ class ScreenRunnerTests(unittest.TestCase):
         targets = runner.last_targets
         self.assertIn("a", targets)
         self.assertIn("b", targets)
+        self.assertGreater(runner.effective_fps, 0.0)
+        self.assertEqual(runner.target_fps, 30)
         colors = runner.stop()
         self.assertFalse(runner.is_running)
         self.assertGreaterEqual(len(colors), 1)
+
+    def test_runner_turbo_and_fallback(self) -> None:
+        controller = FakeController(music_supported=False)
+        image = ScreenAnalyzerTests._stripes()
+        runner = ScreenSyncRunner(controller)  # type: ignore[arg-type]
+        runner._capture_factory = lambda _index: FakeCapture(image)  # type: ignore[assignment]
+        device = LightDevice("A", "a", "192.168.1.10", "0123456789abcdef", "3.3")
+        config = ScreenSyncConfig(
+            sampling_mode="zones",
+            sensor_zones=[SensorZone(x=0.0, y=0.0, w=1.0, h=1.0)],
+            smoothing=0.3,
+            fps=30,
+            turbo=True,
+        )
+        runner.start([device], config, {"a": 0})
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and not controller.calls:
+            time.sleep(0.02)
+        runner.stop()
+        self.assertTrue(controller.music_calls)
+        self.assertTrue(controller.calls)
+        self.assertIn("a", runner.turbo_fallback_ids)
 
 
 if __name__ == "__main__":

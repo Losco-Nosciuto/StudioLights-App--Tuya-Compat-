@@ -2228,7 +2228,7 @@ class StudioLightsApp(ctk.CTk):
         config.assign_default_zones(self.devices)
         for index, device in enumerate(selected):
             config.zone_map.setdefault(
-                device.id, index % config.zones if config.zones > 1 else -1
+                device.id, index % config.zone_count if config.zone_count > 1 else -1
             )
         self.screen_config = config
         self.screen_store.save(config)

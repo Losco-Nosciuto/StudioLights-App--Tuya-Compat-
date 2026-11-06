@@ -517,6 +517,49 @@ class LightController:
 
         return self._executor.submit(self._run_one, device, action)
 
+    def submit_music_frame(
+        self,
+        device: LightDevice,
+        rgb: tuple[int, int, int],
+        brightness: int,
+    ) -> Future[LightResult]:
+        """High-rate frame through Tuya music mode (DP28), without an ACK per frame.
+
+        DP28 ``control_data`` is the only Tuya mechanism intended for rapid colour
+        updates. The first frame enters music mode; subsequent frames are sent with
+        nowait=True so a 60 fps loop is not capped by the local round-trip time.
+        """
+        red, green, blue = (max(0, min(255, int(channel))) for channel in rgb)
+        level = max(1, min(100, int(brightness)))
+
+        def action(bulb: tinytuya.BulbDevice) -> Any:
+            if not bulb.dpset.get("music"):
+                raise LightError(
+                    "Questa lampadina non espone la modalità music (DP28).",
+                    ERROR_UNSUPPORTED,
+                )
+            if not getattr(bulb, "_studiolights_music_ready", False):
+                response = bulb.set_mode("music")
+                error = _error_text(response)
+                if error:
+                    raise LightError(error, classify_error(error))
+                bulb._studiolights_music_ready = True
+            response = bulb.set_music_colour(
+                1,  # fade
+                red,
+                green,
+                blue,
+                brightness=level,
+                colourtemp=0,
+                nowait=True,
+            )
+            error = _error_text(response)
+            if error:
+                raise LightError(error, classify_error(error))
+            return response
+
+        return self._executor.submit(self._run_one, device, action)
+
     def refresh(
         self,
         devices: Iterable[LightDevice],

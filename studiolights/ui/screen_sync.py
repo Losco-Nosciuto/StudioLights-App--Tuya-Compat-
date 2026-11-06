@@ -12,6 +12,8 @@ from ..screen_sync import (
     SCREEN_PRESETS,
     MonitorInfo,
     ScreenSyncConfig,
+    SensorZone,
+    default_sensor_zones,
     list_monitors,
 )
 from ..theme import COLORS, font, mono
@@ -24,8 +26,8 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         super().__init__(master, fg_color=COLORS["bg"])
         self.app = app
         self.title("Screen Sync — Studio Lights")
-        self.geometry("820x740")
-        self.minsize(740, 620)
+        self.geometry("900x820")
+        self.minsize(780, 640)
         self.transient(master)
         self.protocol("WM_DELETE_WINDOW", self.close)
         self._monitors: list[MonitorInfo] = list_monitors()
@@ -37,6 +39,10 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         self._save_job: str | None = None
         self._running = False
         self._config = app.screen_config.copy()
+        self._zones: list[SensorZone] = [zone.copy() for zone in self._config.sensor_zones]
+        self._selected_zone: int | None = 0 if self._zones else None
+        self._zone_area: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
+        self._drag: dict[str, Any] | None = None
         self._build()
         self._apply_config(self._config)
         self._refresh_monitors()
@@ -223,7 +229,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         head.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(
             head,
-            text="MAPPA SCHERMO → ZONE",
+            text="SENSORI SCHERMO · ANTEPRIMA 16:9",
             font=font(9, "bold"),
             text_color=COLORS["dim"],
             anchor="w",
@@ -236,103 +242,424 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             anchor="e",
         )
         self.zone_caption.grid(row=0, column=1, sticky="e")
+
+        toolbar = ctk.CTkFrame(card, fg_color="transparent")
+        toolbar.grid(row=1, column=0, sticky="ew", padx=14, pady=(5, 4))
+        toolbar.grid_columnconfigure(4, weight=1)
+        ctk.CTkLabel(
+            toolbar,
+            text="MODALITÀ",
+            font=font(8, "bold"),
+            text_color=COLORS["dim"],
+        ).grid(row=0, column=0, sticky="w")
+        self.mode_menu = ctk.CTkOptionMenu(
+            toolbar,
+            values=["Sensori liberi", "Fasce automatiche"],
+            width=150,
+            height=27,
+            fg_color=COLORS["panel_alt"],
+            button_color=COLORS["border"],
+            button_hover_color=COLORS["border_light"],
+            dropdown_fg_color=COLORS["panel_alt"],
+            dropdown_hover_color=COLORS["card_hover"],
+            text_color=COLORS["text"],
+            font=font(9),
+            command=lambda _value: self._on_sampling_mode_changed(),
+        )
+        self.mode_menu.grid(row=0, column=1, padx=(6, 14))
+        ctk.CTkButton(
+            toolbar,
+            text="+ Sensore",
+            width=86,
+            height=27,
+            corner_radius=6,
+            fg_color=COLORS["panel_alt"],
+            border_width=1,
+            border_color=COLORS["border"],
+            hover_color=COLORS["card_hover"],
+            text_color=COLORS["muted"],
+            font=font(8, "bold"),
+            command=self._add_sensor_zone,
+        ).grid(row=0, column=2, padx=(0, 5))
+        ctk.CTkButton(
+            toolbar,
+            text="Rimuovi",
+            width=74,
+            height=27,
+            corner_radius=6,
+            fg_color=COLORS["panel_alt"],
+            border_width=1,
+            border_color=COLORS["border"],
+            hover_color=COLORS["card_hover"],
+            text_color=COLORS["muted"],
+            font=font(8, "bold"),
+            command=self._remove_sensor_zone,
+        ).grid(row=0, column=3, padx=(0, 5))
+        ctk.CTkButton(
+            toolbar,
+            text="Rigenera fasce",
+            width=106,
+            height=27,
+            corner_radius=6,
+            fg_color="transparent",
+            border_width=1,
+            border_color=COLORS["border"],
+            hover_color=COLORS["card_hover"],
+            text_color=COLORS["dim"],
+            font=font(8),
+            command=self._regenerate_bands,
+        ).grid(row=0, column=4, sticky="e")
+
         self.zone_canvas = tk.Canvas(
             card,
-            height=118,
+            height=300,
             bg=COLORS["panel_alt"],
             highlightthickness=0,
             bd=0,
+            cursor="crosshair",
         )
-        self.zone_canvas.grid(row=1, column=0, sticky="ew", padx=14, pady=(5, 12))
-        self.zone_canvas.bind("<Configure>", lambda _event: self._rebuild_zone_map())
+        self.zone_canvas.grid(row=2, column=0, sticky="ew", padx=14, pady=(2, 4))
+        self.zone_canvas.bind("<Configure>", self._on_zone_canvas_configure)
+        self.zone_canvas.bind("<ButtonPress-1>", self._on_zone_press)
+        self.zone_canvas.bind("<B1-Motion>", self._on_zone_drag)
+        self.zone_canvas.bind("<ButtonRelease-1>", self._on_zone_release)
+        self.zone_canvas.bind("<Double-Button-1>", self._on_zone_double_click)
+        self.zone_canvas.bind("<ButtonPress-3>", self._on_zone_right_click)
+        self.zone_canvas.bind("<Motion>", self._on_zone_hover)
+
         ctk.CTkLabel(
             card,
             text=(
-                "Le zone sono fasce verticali uguali del monitor. "
-                "I punti/zona sono campioni dentro ogni fascia; HUD e barre nere "
-                "vengono esclusi se attivo."
+                "Trascina un sensore per spostarlo, usa il quadratino in basso a "
+                "destra per ridimensionarlo. Doppio clic sul vuoto aggiunge un "
+                "sensore, clic destro lo rimuove. La cattura resta una sola: le "
+                "zone scelgono solo cosa campionare."
             ),
             font=font(8),
             text_color=COLORS["dim"],
             anchor="w",
             justify="left",
-            wraplength=700,
-        ).grid(row=2, column=0, sticky="w", padx=14, pady=(0, 10))
+            wraplength=760,
+        ).grid(row=3, column=0, sticky="w", padx=14, pady=(0, 10))
+
+    # --------------------------------------------------------- zone geometry
+    def _sampling_mode(self) -> str:
+        return "zones" if self.mode_menu.get() == "Sensori liberi" else "bands"
+
+    def _zone_count(self) -> int:
+        if self._sampling_mode() == "zones":
+            return len(self._zones)
+        return int(self.zones_menu.get()) if hasattr(self, "zones_menu") else 3
+
+    def _on_zone_canvas_configure(self, event: tk.Event) -> None:
+        target = int(min(480, max(180, event.width * 9 / 16)))
+        current = int(self.zone_canvas.cget("height"))
+        if abs(current - target) > 2:
+            self.zone_canvas.configure(height=target)
+            return
+        self._rebuild_zone_map()
+
+    def _zone_pixel_rect(self, zone: SensorZone) -> tuple[float, float, float, float]:
+        left, top, right, bottom = self._zone_area
+        width = right - left
+        height = bottom - top
+        return (
+            left + zone.x * width,
+            top + zone.y * height,
+            left + (zone.x + zone.w) * width,
+            top + (zone.y + zone.h) * height,
+        )
+
+    def _zone_at(self, x: float, y: float) -> int | None:
+        for index in range(len(self._zones) - 1, -1, -1):
+            x0, y0, x1, y1 = self._zone_pixel_rect(self._zones[index])
+            if x0 <= x <= x1 and y0 <= y <= y1:
+                return index
+        return None
+
+    def _near_handle(self, index: int, x: float, y: float) -> bool:
+        _x0, _y0, x1, y1 = self._zone_pixel_rect(self._zones[index])
+        return abs(x - x1) <= 14 and abs(y - y1) <= 14
 
     def _rebuild_zone_map(self) -> None:
         if not hasattr(self, "zone_canvas"):
             return
         canvas = self.zone_canvas
         canvas.delete("all")
-        width = max(300, canvas.winfo_width() or 700)
-        height = 118
-        zones = int(self.zones_menu.get()) if hasattr(self, "zones_menu") else 3
-        left, right = 12, width - 12
-        top, bottom = 26, height - 12
-        monitor = self.monitor_menu.get() if hasattr(self, "monitor_menu") else "Monitor"
-        canvas.create_text(
+        width = max(320, canvas.winfo_width() or 760)
+        height = max(180, int(canvas.cget("height")))
+        pad = 10
+        left, top, right, bottom = pad, pad, width - pad, height - pad
+        self._zone_area = (left, top, right, bottom)
+        canvas.create_rectangle(
             left,
-            8,
-            text=monitor,
+            top,
+            right,
+            bottom,
+            fill=COLORS["panel"],
+            outline=COLORS["border_light"],
+            width=1,
+        )
+        for step in (1, 2):
+            x = left + (right - left) * step / 3
+            y = top + (bottom - top) * step / 3
+            canvas.create_line(x, top, x, bottom, fill=COLORS["border"], dash=(2, 5))
+            canvas.create_line(left, y, right, y, fill=COLORS["border"], dash=(2, 5))
+        canvas.create_text(
+            left + 6,
+            top + 5,
+            text=f"16:9 · {self.monitor_menu.get() if hasattr(self, 'monitor_menu') else 'Monitor'}",
             anchor="nw",
             fill=COLORS["dim"],
             font=font(8),
         )
-        global_names: list[str] = []
-        for index in range(zones):
-            x0 = left + (right - left) * index // zones
-            x1 = left + (right - left) * (index + 1) // zones
-            canvas.create_rectangle(
-                x0,
-                top,
-                x1,
-                bottom,
-                fill=COLORS["panel"],
-                outline=COLORS["border_light"],
-                width=1,
-            )
+
+        mode = self._sampling_mode()
+        if mode == "bands":
+            bands = int(self.zones_menu.get()) if hasattr(self, "zones_menu") else 3
+            for index in range(bands):
+                x0 = left + (right - left) * index / bands
+                x1 = left + (right - left) * (index + 1) / bands
+                canvas.create_rectangle(
+                    x0 + 2,
+                    top + 20,
+                    x1 - 2,
+                    bottom - 2,
+                    fill=COLORS["panel_alt"],
+                    outline=COLORS["border_light"],
+                )
+                canvas.create_text(
+                    x0 + 8,
+                    top + 26,
+                    text=f"Z{index + 1}",
+                    anchor="nw",
+                    fill=COLORS["accent"],
+                    font=font(9, "bold"),
+                )
             canvas.create_text(
-                x0 + 7,
-                top + 6,
-                text=f"Z{index + 1}",
-                anchor="nw",
-                fill=COLORS["accent"],
-                font=font(9, "bold"),
-            )
-            start_pct = round(100 * index / zones)
-            end_pct = round(100 * (index + 1) / zones)
-            canvas.create_text(
-                x0 + 7,
-                top + 23,
-                text=f"{start_pct}–{end_pct}%",
-                anchor="nw",
+                left + 6,
+                bottom - 6,
+                text="Fasce automatiche · non modificabili",
+                anchor="sw",
                 fill=COLORS["dim"],
                 font=font(8),
+            )
+            self.zone_caption.configure(text=f"{bands} fasce · modalità automatica")
+            return
+
+        if not self._zones:
+            self.zone_caption.configure(text="nessun sensore")
+            return
+        for index, zone in enumerate(self._zones):
+            x0, y0, x1, y1 = self._zone_pixel_rect(zone)
+            selected = index == self._selected_zone
+            canvas.create_rectangle(
+                x0,
+                y0,
+                x1,
+                y1,
+                fill=COLORS["accent_dark"] if selected else COLORS["panel_alt"],
+                outline=COLORS["accent"] if selected else COLORS["border_light"],
+                width=2 if selected else 1,
+            )
+            canvas.create_text(
+                x0 + 5,
+                y0 + 4,
+                text=f"Z{index + 1}",
+                anchor="nw",
+                fill=COLORS["accent"] if selected else COLORS["muted"],
+                font=font(9, "bold"),
+            )
+            canvas.create_text(
+                x0 + 5,
+                y0 + 20,
+                text=f"{round(zone.x * 100)}%,{round(zone.y * 100)}% · "
+                f"{round(zone.w * 100)}×{round(zone.h * 100)}%",
+                anchor="nw",
+                fill=COLORS["dim"],
+                font=font(7),
             )
             names = []
             for device in self.app.devices:
                 menu = self._light_menus.get(device.id)
-                value = menu.get() if menu is not None else "Globale"
-                if value == f"Zona {index + 1}":
+                if menu is not None and menu.get() == f"Zona {index + 1}":
                     names.append(device.name)
-                elif value == "Globale":
-                    global_names.append(device.name)
             canvas.create_text(
-                x0 + 7,
-                bottom - 7,
-                text=", ".join(names)[:38] if names else "—",
+                x0 + 5,
+                y1 - 5,
+                text=", ".join(names)[:34] if names else "—",
                 anchor="sw",
                 fill=COLORS["text"] if names else COLORS["dim"],
                 font=font(8, "bold") if names else font(8),
             )
-        unique_global = list(dict.fromkeys(global_names))
+            if selected:
+                canvas.create_rectangle(
+                    x1 - 11,
+                    y1 - 11,
+                    x1,
+                    y1,
+                    fill=COLORS["accent"],
+                    outline=COLORS["accent"],
+                )
         self.zone_caption.configure(
             text=(
-                "Globale: " + ", ".join(unique_global)[:40]
-                if unique_global
-                else "Nessuna luce globale"
+                f"{len(self._zones)} sensori · "
+                f"Z{self._selected_zone + 1} selezionata"
+                if self._selected_zone is not None
+                else f"{len(self._zones)} sensori · nessuna selezionata"
             )
         )
+
+    # -------------------------------------------------------- zone interaction
+    def _on_zone_press(self, event: tk.Event) -> None:
+        if self._sampling_mode() != "zones":
+            return
+        index = self._zone_at(event.x, event.y)
+        self._selected_zone = index
+        if index is not None:
+            mode = "resize" if self._near_handle(index, event.x, event.y) else "move"
+            self._drag = {
+                "mode": mode,
+                "index": index,
+                "x": event.x,
+                "y": event.y,
+                "zone": self._zones[index].copy(),
+            }
+        self._rebuild_zone_map()
+
+    def _on_zone_drag(self, event: tk.Event) -> None:
+        if self._drag is None:
+            return
+        left, top, right, bottom = self._zone_area
+        area_w = max(1.0, right - left)
+        area_h = max(1.0, bottom - top)
+        dx = (event.x - self._drag["x"]) / area_w
+        dy = (event.y - self._drag["y"]) / area_h
+        start: SensorZone = self._drag["zone"]
+        zone = self._zones[self._drag["index"]]
+        if self._drag["mode"] == "move":
+            zone.x = max(0.0, min(1.0 - zone.w, start.x + dx))
+            zone.y = max(0.0, min(1.0 - zone.h, start.y + dy))
+        else:
+            zone.w = max(0.04, min(1.0 - zone.x, start.w + dx))
+            zone.h = max(0.04, min(1.0 - zone.y, start.h + dy))
+        self._rebuild_zone_map()
+
+    def _on_zone_release(self, _event: tk.Event) -> None:
+        if self._drag is None:
+            return
+        self._drag = None
+        self._config.sensor_zones = [zone.copy() for zone in self._zones]
+        self._schedule_save()
+
+    def _on_zone_double_click(self, event: tk.Event) -> None:
+        if self._sampling_mode() != "zones":
+            return
+        if self._zone_at(event.x, event.y) is not None:
+            return
+        left, top, right, bottom = self._zone_area
+        if right <= left or bottom <= top:
+            return
+        x = (event.x - left) / (right - left)
+        y = (event.y - top) / (bottom - top)
+        self._add_sensor_zone(x, y)
+
+    def _on_zone_right_click(self, event: tk.Event) -> None:
+        if self._sampling_mode() != "zones":
+            return
+        index = self._zone_at(event.x, event.y)
+        if index is None:
+            return
+        self._selected_zone = index
+        self._remove_sensor_zone()
+
+    def _on_zone_hover(self, event: tk.Event) -> None:
+        if self._drag is not None:
+            return
+        if self._sampling_mode() != "zones":
+            self.zone_canvas.configure(cursor="")
+            return
+        index = self._zone_at(event.x, event.y)
+        if index is None:
+            cursor = "crosshair"
+        elif self._near_handle(index, event.x, event.y):
+            cursor = "size_nw_se"
+        else:
+            cursor = "fleur"
+        self.zone_canvas.configure(cursor=cursor)
+
+    def _add_sensor_zone(self, x: float = 0.5, y: float = 0.5) -> None:
+        if self._sampling_mode() != "zones":
+            self.mode_menu.set("Sensori liberi")
+        if len(self._zones) >= 8:
+            return
+        self._config.zone_map = self._collect_zone_map()
+        zone_w, zone_h = 0.26, 0.30
+        zone = SensorZone(
+            x=max(0.0, min(1.0 - zone_w, x - zone_w / 2)),
+            y=max(0.0, min(1.0 - zone_h, y - zone_h / 2)),
+            w=zone_w,
+            h=zone_h,
+        )
+        self._zones.append(zone)
+        self._selected_zone = len(self._zones) - 1
+        self._after_zones_changed()
+
+    def _remove_sensor_zone(self) -> None:
+        if self._sampling_mode() != "zones" or len(self._zones) <= 1:
+            return
+        self._config.zone_map = self._collect_zone_map()
+        index = self._selected_zone
+        if index is None or not (0 <= index < len(self._zones)):
+            index = len(self._zones) - 1
+        self._zones.pop(index)
+        remapped: dict[str, int] = {}
+        for device_id, zone_index in self._config.zone_map.items():
+            if zone_index == index:
+                remapped[device_id] = -1
+            elif zone_index > index:
+                remapped[device_id] = zone_index - 1
+            else:
+                remapped[device_id] = zone_index
+        self._config.zone_map = remapped
+        self._selected_zone = min(index, len(self._zones) - 1)
+        self._after_zones_changed()
+
+    def _regenerate_bands(self) -> None:
+        count = int(self.zones_menu.get()) if hasattr(self, "zones_menu") else 3
+        self._config.zone_map = self._collect_zone_map()
+        self._zones = default_sensor_zones(count)
+        self._selected_zone = 0
+        self.mode_menu.set("Sensori liberi")
+        self._after_zones_changed()
+
+    def _on_sampling_mode_changed(self) -> None:
+        self._config.zone_map = self._collect_zone_map()
+        self._config.sampling_mode = self._sampling_mode()
+        self._sync_mode_widgets()
+        self._rebuild_light_map()
+        self._rebuild_preview()
+        self._schedule_save()
+
+    def _sync_mode_widgets(self) -> None:
+        state = "normal" if self._sampling_mode() == "bands" else "disabled"
+        try:
+            self.zones_menu.configure(state=state)
+        except Exception:
+            pass
+
+    def _after_zones_changed(self) -> None:
+        self._config.sampling_mode = "zones"
+        self._config.sensor_zones = [zone.copy() for zone in self._zones]
+        self._sync_mode_widgets()
+        count = max(1, len(self._zones))
+        for device_id, zone_index in list(self._config.zone_map.items()):
+            if zone_index >= count:
+                remapped = zone_index % count if count > 1 else -1
+                self._config.zone_map[device_id] = remapped
+        self._rebuild_light_map()
+        self._rebuild_preview()
+        self._schedule_save()
 
     def _on_light_map_changed(self) -> None:
         self._schedule_save()
@@ -418,7 +745,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         options.grid_columnconfigure(5, weight=1)
         ctk.CTkLabel(
             options,
-            text="ZONE",
+            text="FASCE",
             font=font(8, "bold"),
             text_color=COLORS["dim"],
         ).grid(row=0, column=0, sticky="w")
@@ -466,7 +793,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         ).grid(row=0, column=4, sticky="w")
         self.fps_menu = ctk.CTkOptionMenu(
             options,
-            values=["5", "8", "10", "15"],
+            values=["5", "8", "10", "15", "30", "60"],
             width=64,
             height=27,
             fg_color=COLORS["panel_alt"],
@@ -481,7 +808,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         self.fps_menu.grid(row=0, column=5, sticky="w", padx=(6, 0))
 
         self.smooth_slider, self.smooth_label = self._slider_row(
-            card, 3, "INSEGUIMENTO", 0.3, 3.0, 27, "1.2 s"
+            card, 3, "INSEGUIMENTO", 0.1, 3.0, 29, "1.2 s"
         )
         self.saturation_slider, self.saturation_label = self._slider_row(
             card, 4, "SATURAZIONE", 0.5, 2.0, 30, "1.25×"
@@ -525,6 +852,21 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             font=font(8),
             command=self._schedule_save,
         ).pack(side="left", padx=(24, 0))
+        self.turbo_var = tk.BooleanVar(value=False)
+        ctk.CTkSwitch(
+            toggles,
+            text="Turbo music (sperimentale)",
+            width=200,
+            variable=self.turbo_var,
+            switch_width=30,
+            switch_height=16,
+            fg_color=COLORS["border_light"],
+            progress_color=COLORS["warning"],
+            button_color=COLORS["text"],
+            text_color=COLORS["muted"],
+            font=font(8),
+            command=self._schedule_save,
+        ).pack(side="left", padx=(20, 0))
 
     def _slider_row(
         self,
@@ -595,6 +937,11 @@ class ScreenSyncWindow(ctk.CTkToplevel):
     # ------------------------------------------------------------------ state
     def _apply_config(self, config: ScreenSyncConfig) -> None:
         self._config = config.copy()
+        self._zones = [zone.copy() for zone in self._config.sensor_zones]
+        self._selected_zone = 0 if self._zones else None
+        self.mode_menu.set(
+            "Sensori liberi" if self._config.sampling_mode == "zones" else "Fasce automatiche"
+        )
         self.zones_menu.set(str(self._config.zones))
         self.sample_menu.set(str(self._config.sample_points))
         self.fps_menu.set(str(self._config.fps))
@@ -604,7 +951,10 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         self.min_slider.set(self._config.brightness_min)
         self.hud_var.set(self._config.ignore_hud)
         self.black_var.set(self._config.hold_on_black)
+        self.turbo_var.set(self._config.turbo)
         self._update_slider_labels()
+        self._sync_mode_widgets()
+        self._rebuild_zone_map()
         self._rebuild_preview()
 
     def _update_slider_labels(self) -> None:
@@ -613,12 +963,13 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         self.max_label.configure(text=f"{int(round(self.max_slider.get()))}%")
         self.min_label.configure(text=f"{int(round(self.min_slider.get()))}%")
 
-    def _read_config(self) -> ScreenSyncConfig:
-        monitor = self._monitor_by_label.get(self.monitor_menu.get())
+    def _collect_zone_map(self) -> dict[str, int]:
         zone_map: dict[str, int] = {}
         for device in self.app.devices:
             menu = self._light_menus.get(device.id)
             if menu is None:
+                if device.id in self._config.zone_map:
+                    zone_map[device.id] = self._config.zone_map[device.id]
                 continue
             value = menu.get()
             if value == "Globale":
@@ -628,9 +979,16 @@ class ScreenSyncWindow(ctk.CTkToplevel):
                     zone_map[device.id] = int(value.split()[-1]) - 1
                 except (ValueError, IndexError):
                     zone_map[device.id] = -1
+        return zone_map
+
+    def _read_config(self) -> ScreenSyncConfig:
+        monitor = self._monitor_by_label.get(self.monitor_menu.get())
+        zone_map = self._collect_zone_map()
         return ScreenSyncConfig(
             monitor_index=monitor.index if monitor else self._config.monitor_index,
             monitor_label=monitor.label if monitor else self._config.monitor_label,
+            sampling_mode=self._sampling_mode(),
+            sensor_zones=[zone.copy() for zone in self._zones],
             zones=int(self.zones_menu.get()),
             sample_grid={1: 1, 4: 2, 9: 3}.get(
                 int(self.sample_menu.get()), self._config.sample_grid
@@ -640,6 +998,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             brightness_min=int(round(self.min_slider.get())),
             brightness_max=int(round(self.max_slider.get())),
             fps=int(self.fps_menu.get()),
+            turbo=bool(self.turbo_var.get()),
             ignore_hud=bool(self.hud_var.get()),
             hold_on_black=bool(self.black_var.get()),
             preset=self._config.preset,
@@ -675,16 +1034,25 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         if not preset:
             return
         self._config.preset = name
-        self.smooth_slider.set(preset["smoothing"])
-        self.saturation_slider.set(preset["saturation"])
-        self.max_slider.set(preset["brightness_max"])
+        if "smoothing" in preset:
+            self.smooth_slider.set(preset["smoothing"])
+        if "saturation" in preset:
+            self.saturation_slider.set(preset["saturation"])
+        if "brightness_max" in preset:
+            self.max_slider.set(preset["brightness_max"])
+        if "fps" in preset:
+            self.fps_menu.set(str(int(preset["fps"])))
+        if "turbo" in preset:
+            self.turbo_var.set(bool(preset["turbo"]))
         self._update_slider_labels()
         self._schedule_save()
 
     def _on_zones_changed(self) -> None:
         self._config.zones = int(self.zones_menu.get())
-        self._rebuild_preview()
-        self._rebuild_light_map()
+        if self._sampling_mode() == "bands":
+            self._rebuild_light_map()
+            self._rebuild_preview()
+        self._rebuild_zone_map()
         self._schedule_save()
 
     def _refresh_monitors(self) -> None:
@@ -706,7 +1074,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             child.destroy()
         self._preview_boxes = []
         self._preview_labels = []
-        zones = int(self.zones_menu.get()) if hasattr(self, "zones_menu") else 3
+        zones = self._zone_count()
         for index in range(zones):
             box = ctk.CTkFrame(
                 self.preview_row,
@@ -731,7 +1099,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         for child in self.light_map_frame.winfo_children():
             child.destroy()
         self._light_menus = {}
-        zones = int(self.zones_menu.get()) if hasattr(self, "zones_menu") else 3
+        zones = self._zone_count()
         values = ["Globale"] + [f"Zona {index + 1}" for index in range(zones)]
         for row_index, device in enumerate(self.app.devices):
             row = ctk.CTkFrame(self.light_map_frame, fg_color="transparent")
@@ -808,14 +1176,20 @@ class ScreenSyncWindow(ctk.CTkToplevel):
                         text_color="#101418" if target.luma > 0.45 else COLORS["text"],
                     )
             self.preview_status.configure(
-                text=f"{frame.capture_ms} ms capture · {frame.analysis_ms} ms analisi"
+                text=(
+                    f"{frame.capture_ms} ms capture · {frame.analysis_ms} ms analisi · "
+                    f"{self.app.screen_runner.effective_fps:.1f} fps reali"
+                )
             )
             if frame.warning:
                 self.footer_status.configure(text=frame.warning, text_color=COLORS["warning"])
             elif self.app.screen_running:
                 self.footer_status.configure(
-                    text=f"Sync attivo · {len(frame.zones)} zone · "
-                    f"{self.app.screen_runner.frame_count} frame",
+                    text=(
+                        f"Sync attivo · {len(frame.zones)} zone · "
+                        f"{self.app.screen_runner.frame_count} frame · "
+                        f"{self.app.screen_runner.effective_fps:.1f} fps"
+                    ),
                     text_color=COLORS["success"],
                 )
         else:

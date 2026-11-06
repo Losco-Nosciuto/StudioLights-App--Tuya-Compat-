@@ -423,3 +423,19 @@ Le stime escludono imprevisti legati a fullscreen/anti-cheat/HDR del gioco speci
 Il primo passo concreto è **M0**: verificare la cattura di Crimson Desert in borderless e
 fullscreen e misurare il costo di ImageGrab a 1080p/1440p. Da quel risultato dipendono
 backend e fps definitivi.
+
+---
+
+## 16. Aggiornamento 1.2.1 — sensori liberi e misure reali
+
+- Implementati **1–8 sensori 16:9** normalizzati, trascinabili/ridimensionabili, con
+  doppio clic per aggiungere e clic destro per rimuovere; restano disponibili le fasce
+  automatiche 3/5/7 per compatibilità.
+- FPS richiesti fino a **60** e preset **Bassa latenza**, con lettura degli fps reali.
+- Benchmark `mss` sul monitor 2560×1440: frame intero **~28 ms**, 4 patch 320×180
+  **~41 ms**, 4 patch 640×360 **~44 ms**. I grab multipli hanno un costo fisso, quindi:
+  - una sola cattura intera per frame, le zone sono crop nell'analisi;
+  - le zone migliorano la scelta del campione, non la velocità;
+  - il tetto pratico resta **~30 fps**; 60 fps richiedono DXGI/WGC.
+- Aggiunto **turbo music** sperimentale (DP28 `control_data`, `nowait=True`) con
+  fallback automatico al frame normale.

@@ -33,8 +33,10 @@ Studio Lights risolve questo con:
   - **Scene HW**: invio delle scene native del firmware Tuya (indice + payload opzionale).
   - **Flow**: fade infinito tra 8 colori, 0.5–5 s per transizione, 3/6/10/15/30 fps,
     sfasamento tra le luci e stop immediato.
-- **Screen Sync**: le luci seguono il monitor del gioco, con 3/5/7 zone, 1/4/9 punti
-  di campionamento per zona, smoothing, saturazione, limiti di luminosità e preset.
+- **Screen Sync**: le luci seguono il monitor del gioco, con 1–8 sensori 16:9
+  trascinabili e ridimensionabili (o fasce automatiche 3/5/7), 1/4/9 punti di
+  campionamento per zona, 5–60 fps, preset **Bassa latenza**, smoothing, saturazione,
+  limiti di luminosità e turbo music sperimentale.
 - **Scene Studio** salvabili/richiamabili con un clic, con tipo *Globale*, *Snapshot* o
   *Flow*. Sovrascrittura ed eliminazione dal menu `⋯` della card.
 - Import automatico di `devices.json` (wizard tinytuya) e import manuale dalle impostazioni.
@@ -178,21 +180,36 @@ Scorciatoie: `F5` aggiorna lo stato, `Ctrl+N` crea una scena.
 
 1. Seleziona le luci che vuoi animare (o usa **Seleziona tutte le luci** nella finestra Screen Sync).
 2. Clicca **Screen Sync** nell'header.
-3. Scegli il **monitor del gioco** (quello corretto, non il desktop). La **Mappa schermo → zone** mostra esattamente le fasce e le luci assegnate.
-4. Imposta:
-   - **Zone** 3/5/7: quante fasce verticali uguali analizzare (Z1 = sinistra, Z2 = centro, Z3 = destra con 3 zone);
-   - **Punti/zona** 1/4/9: quanti campioni per zona (griglia 1×1, 2×2, 3×3);
-   - **FPS** 5/8/10/15 dell'analisi e dell'invio;
-   - **Inseguimento** (0.3–3 s), saturazione, luminosità minima/massima;
-   - **Escludi HUD/barre** e **Mantieni colore su schermo nero**.
-5. Nella mappa **LUCI → ZONE**, assegna ogni lampadina a una zona o a **Globale**.
-6. Premi **AVVIA SYNC**. Se non hai selezionato luci, il pulsante resta disabilitato e la finestra te lo dice. Il pulsante **■ STOP SYNC** appare nella barra di stato.
+3. Scegli il **monitor del gioco** (quello corretto, non il desktop). La
+   **anteprima 16:9** mostra i sensori e le luci assegnate.
+4. Scegli la modalità dei sensori:
+   - **Sensori liberi**: trascina un rettangolo per spostarlo, usa il quadratino in
+     basso a destra per ridimensionarlo; doppio clic sul vuoto aggiunge un sensore,
+     clic destro lo rimuove (1–8 sensori). Sono le aree pixel realmente campionate.
+   - **Fasce automatiche**: 3/5/7 fasce verticali uguali (Z1 = sinistra, Z2 = centro,
+     Z3 = destra con 3 fasce).
+   - **Rigenera fasce** ricrea sensori liberi a partire dal numero di fasce scelto.
+5. Imposta:
+   - **Punti/zona** 1/4/9: quanti campioni per sensore (griglia 1×1, 2×2, 3×3);
+   - **FPS** 5/8/10/15/30/60: frequenza richiesta all'analisi e all'invio;
+   - **Inseguimento** (0.1–3 s), saturazione, luminosità minima/massima;
+   - **Escludi HUD/barre** (solo fasce automatiche) e **Mantieni colore su schermo nero**;
+   - **Turbo music** (sperimentale): usa il DP28 `control_data` senza ACK per frame,
+     con fallback automatico al frame normale se il firmware lo rifiuta.
+6. Nella mappa **LUCI → ZONE**, assegna ogni lampadina a un sensore o a **Globale**.
+7. Premi **AVVIA SYNC**. Se non hai selezionato luci, il pulsante resta disabilitato e la finestra te lo dice. Il pulsante **■ STOP SYNC** appare nella barra di stato.
+
+L'anteprima mostra i millisecondi di cattura/analisi e gli **fps reali**: con `mss` e
+schermo 1440p la cattura costa ~28 ms, quindi il tetto pratico è ~30 fps anche
+impostando 60. I 60 fps richiederebbero un backend DXGI/Windows Graphics Capture.
+Le zone libere non accelerano la cattura (una sola cattura intera, poi crop
+nell'analisi): servono a scegliere meglio cosa campionare ed escludere HUD.
 
 Per i giochi: **borderless windowed**, HDR disattivato. In fullscreen exclusive alcuni
 giochi danno frame neri; in quel caso l'app lo segnala e non invia nero alle luci.
 Screen Sync e Flow sono mutuamente esclusivi; qualsiasi comando manuale ferma il sync.
 Le impostazioni vengono salvate in `screen_sync.json` (runtime, ignorato da Git) e sono
-ripristinate al riavvio. Le modifiche a monitor, numero di zone e mappa luci si applicano
+ripristinate al riavvio. Le modifiche a monitor, sensori e mappa luci si applicano
 al successivo **Avvia Sync**; ferma e riavvia per cambiarle.
 
 ## File di configurazione
@@ -308,7 +325,7 @@ studiolights/
   ui/colorpicker.py          picker HSV con Pillow
   ui/dialogs.py              impostazioni, editor luce, scene, palette, conferme
 tests/test_core.py           19 test senza hardware
-tests/test_screen_sync.py    7 test Screen Sync senza monitor/Tuya
+tests/test_screen_sync.py    10 test Screen Sync senza monitor/Tuya
 tools/make_icon.py           rigenera l'icona
 ```
 
@@ -320,17 +337,19 @@ tools/make_icon.py           rigenera l'icona
 
 I test coprono modelli, validazione, persistenza, import wizard, seed scene, payload DPS
 atomici, classificazione errori, matching IP, interpolazione colori, motore Flow
-(invio frame, stop, sfasamento) e Screen Sync (config, zone, HUD, letterbox, smoothing,
-runner con capture finta). Non richiedono lampadine reali.
+(invio frame, stop, sfasamento) e Screen Sync (config, sensori liberi, fasce, HUD,
+letterbox, smoothing, runner con capture finta, turbo con fallback). Non richiedono
+lampadine reali.
 
-Totale attuale: **26 test** (19 core + 7 Screen Sync).
+Totale attuale: **29 test** (19 core + 10 Screen Sync).
 
 ## Troubleshooting
 
 | Sintomo | Causa / soluzione |
 |---|---|
 | `Network Error: Device Unreachable` | luce spenta dall'interruttore, IP cambiato, firewall, VLAN. Usa **Scansiona IP LAN** e verifica il ping. |
-| `Check device key or version` | Local Key errata o protocollo sbagliato: prova 3.3, 3.4, 3.5. |
+| `Check device key or version` | Local Key errata o protocollo sbagliato: prova 3.3, 3.4, 3.5. Se la luce è stata ri-accoppiata in Smart Life la key cambia: importa di nuovo `devices.json` dalle Impostazioni o rilancia `tinytuya wizard`. |
+| Una luce funziona, un'altra no dopo cambio IP | l'IP è raggiungibile ma la Local Key è vecchia: confronta `devices.json` con `lights_config.json`, reimporta il file e assegna un IP fisso (DHCP reservation) al router. |
 | La luce accende ma il colore no | modello solo bianco (CCT) o DP colore non esposto; il test mostra il tipo. |
 | Scena HW non funziona | le scene sono specifiche del firmware; prova indici 1–4, poi il payload Type B. |
 | Flow a scatti | abbassa gli FPS (3 o 6), aumenta i secondi per transizione, avvicina le luci al router; il fade è generato dal PC, non dal firmware. |
@@ -338,6 +357,8 @@ Totale attuale: **26 test** (19 core + 7 Screen Sync).
 | Screen Sync: schermo nero | il gioco è in fullscreen exclusive o HDR/DRM: passa a borderless e disattiva HDR. |
 | Screen Sync non reagisce | controlla monitor, mappa luci → zone, luci selezionate e che il gioco sia sul monitor scelto. |
 | Screen Sync a scatti | abbassa FPS e saturazione; alza l'inseguimento (2–3 s) o avvicina le luci al router. |
+| Screen Sync non arriva a 60 fps | atteso con `mss`: la cattura 1440p costa ~28 ms, quindi il tetto reale è ~30 fps. L'anteprima mostra gli fps reali; per 60 servirebbe DXGI/WGC. |
+| Turbo music non cambia nulla | il firmware non espone DP28 o rifiuta `control_data`: il runner torna da solo al frame normale e lo scrive nel log. |
 | Screen Sync: colori piatti | alza la saturazione o usa il preset Neon; il firmware può limitare la fedeltà colore. |
 | Temperatura invertita | alcuni modelli mappano 0 = freddo. È documentato come limite noto. |
 | La GUI si blocca | non dovrebbe: i comandi sono in thread. Controlla `logs/studiolights.log`. |

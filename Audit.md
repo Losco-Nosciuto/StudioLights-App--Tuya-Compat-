@@ -1,6 +1,6 @@
-# Audit tecnico — Studio Lights 1.2.0
+# Audit tecnico — Studio Lights 1.2.1
 
-**Data:** 6 novembre 2026
+**Data:** 7 novembre 2026
 **Ambiente di sviluppo:** Windows 11, Python 3.12.10, Tk 8.6
 **Librerie verificate:** tinytuya **1.20.0**, customtkinter **6.0.0**, Pillow **13.0.0**
 **Stato:** implementazione completa, test automatici e smoke test GUI superati.
@@ -49,7 +49,7 @@ sincronizzazione tra PC, scenari fuori dalla LAN, supporto a prese/termostati.
 | Snapshot multi-luce | `Scene(type="snapshot")` + `lights` | test GUI + persistenza |
 | Flow 8 colori, fade infinito, 0.5–5 s | `flow.py`, `FlowRunner`, tab Flow | 2 test motore + test GUI start/stop |
 | Scena Flow salvabile | `Scene(type="flow")` + `FlowConfig` | round-trip + GUI |
-| Screen Sync: monitor, zone, punti | `screen_sync.py`, `ui/screen_sync.py` | 7 test unitari + GUI live |
+| Screen Sync: sensori 16:9, fps, turbo | `screen_sync.py`, `ui/screen_sync.py` | 10 test unitari + GUI live |
 | Cattura monitor con mss | `ScreenCapture`, `list_monitors` | cattura reale desktop, 42 frame |
 | Elimina / sovrascrivi scena | menu card + `delete_scene` / `overwrite_scene` | codice + dialogo conferma |
 | Timeout 1.5 s, retry 1 | `LightController.__init__`, `_get_bulb` | ispezione + test offline (~1.5 s) |
@@ -135,14 +135,26 @@ affollato. Il limite è documentato in README e nella UI.
 Screen Sync è separato dal Flow palette ma riusa `submit_colour_frame`:
 
 - **Cattura**: `mss` cattura solo il monitor scelto; `PIL` crea il frame RGB e lo riduce
-  a 96×54. `mss` evita di catturare tutto il desktop e permette 5–15 fps con costo basso.
-- **Zone**: 3/5/7 fasce verticali; 1/4/9 punti per zona (griglia 1×1, 2×2, 3×3).
-- **Maschere**: rilevamento letterbox sulle righe nere e taglio HUD superiore 12% /
-  inferiore 15% (opzionale).
+  a 96×54. Una sola cattura intera per frame: le zone sono crop nell'analisi, non grab
+  separati. Misurato su 2560×1440: frame intero ~28 ms, 4 patch 320×180 ~41 ms, quindi
+  dividere la cattura in più grab peggiora la latenza.
+- **Sensori**: 1–8 rettangoli normalizzati (0..1) sull'anteprima 16:9, trascinabili e
+  ridimensionabili; in alternativa 3/5/7 fasce automatiche. Le zone libere scelgono
+  *cosa* campionare (ed escludere HUD), non accelerano `mss`.
+- **Campionamento**: 1/4/9 punti per zona (griglia 1×1, 2×2, 3×3).
+- **Maschere**: con le fasce automatiche si rileva il letterbox sulle righe nere e si
+  taglia l'HUD superiore 12% / inferiore 15% (opzionale). Con i sensori liberi la
+  maschera è la zona scelta dall'utente.
 - **Colore**: media RGB per zona → HSV; la saturazione viene aumentata dal preset, il
   valore viene normalizzato a 1 e la luminosità del bulbo è pilotata dalla luminanza.
-- **Smoothing**: EMA con `alpha = 1 - exp(-dt / tau)`; `tau` 0.3–3 s.
-- **Mapping**: ogni luce è associata a una zona o a “Globale”; il runner invia i frame
+- **Smoothing**: EMA con `alpha = 1 - exp(-dt / tau)`; `tau` 0.1–3 s.
+- **Frame rate**: richiesta 5–60 fps, ma il loop attende il completamento della cattura;
+  `effective_fps` misura il rate reale e la UI lo mostra. Con `mss` a 1440p il tetto è
+  ~30 fps; 60 fps richiederebbero DXGI/WGC.
+- **Turbo music**: opzione sperimentale che entra in music mode e invia DP28
+  `control_data` con `nowait=True`, senza ACK per frame; al primo errore
+  protocollo/unsupported la luce torna automaticamente a `submit_colour_frame`.
+- **Mapping**: ogni luce è associata a un sensore o a “Globale”; il runner invia i frame
   con lo stesso payload completo delle scene statiche (switch → brightness → colour →
   mode), un frame in volo per luce.
 - **Stop**: il pulsante nella barra di stato e la chiusura della finestra fermano il
@@ -170,9 +182,9 @@ DRM non è supportato. La cattura è locale e i frame non vengono salvati.
 - `scenes.json` è indipendente dalle luci: le scene snapshot conservano gli ID e le luci
   mancanti vengono saltate al richiamo. Le scene Flow salvano palette, durata, fps,
   sfasamento e luminosità, non stati per singola luce.
-- `screen_sync.json` salva monitor, zone, punti, smoothing, saturazione, limiti di
-  luminosità, preset e mappa luci → zone. È un file runtime ignorato da Git; esempio in
-  `screen_sync.example.json`.
+- `screen_sync.json` salva monitor, modalità, sensori, punti, smoothing, saturazione,
+  limiti di luminosità, fps, turbo, preset e mappa luci → zone. È un file runtime
+  ignorato da Git; esempio in `screen_sync.example.json`.
 - I file runtime (`lights_config.json`, `scenes.json`, `screen_sync.json`, `devices.json`,
   `tinytuya.json`, `tuya-raw.json`, `snapshot.json`) sono esclusi da Git perché possono
   contenere Local Key; nel repository restano solo i modelli `*.example.json`.
@@ -271,16 +283,16 @@ Per questo il progetto converte esplicitamente le percentuali.
 
 ```
 python -m compileall studiolights main.py tests      → OK
-python -m unittest discover -s tests -v               → 26 test, OK
+python -m unittest discover -s tests -v               → 29 test, OK
 ruff check . --exclude .venv --select F,E9            → OK
 ```
 
-I 26 test coprono: normalizzazione versioni, clamp/serializzazione stato, validazione
+I 29 test coprono: normalizzazione versioni, clamp/serializzazione stato, validazione
 device, conversioni Kelvin, round-trip scene global/snapshot/flow, FlowConfig e
 interpolazione colori, import wizard (lista e dict), creazione template, persistenza luci
 e scene, payload atomico colore/bianco/off, decodifica stato, classificazione errori,
-matching IP, motore Flow e Screen Sync (config, zone, HUD/letterbox, smoothing, runner
-con capture finta).
+matching IP, motore Flow e Screen Sync (config, sensori liberi, fasce, HUD/letterbox,
+smoothing, runner con capture finta, turbo con fallback).
 
 ### GUI
 
@@ -394,6 +406,18 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 ---
 
 ## 12. Changelog
+
+### 1.2.1 — 2026-11-07
+
+- **Screen Sync**: sensori 16:9 liberi (1–8) trascinabili/ridimensionabili con anteprima
+  interattiva, in alternativa alle fasce automatiche 3/5/7; `Rigenera fasce`.
+- **FPS** fino a 60, preset **Bassa latenza**, smoothing minimo 0.1 s e lettura degli
+  **fps reali** accanto ai tempi di cattura/analisi.
+- **Turbo music** sperimentale su DP28 `control_data` con `nowait=True` e fallback
+  automatico al frame normale.
+- Benchmark `mss`: frame intero 2560×1440 ~28 ms vs 4 patch piccole ~41 ms; documentato
+  che le zone non accelerano la cattura e che 60 fps richiedono DXGI/WGC.
+- Test: **29** (10 Screen Sync), inclusi clamp dei sensori e turbo con fallback.
 
 ### 1.2.0 — 2026-11-06
 

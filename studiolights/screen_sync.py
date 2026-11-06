@@ -36,11 +36,18 @@ SCREEN_CONFIG_FILE = "screen_sync.json"
 ANALYSIS_WIDTH = 96
 ANALYSIS_HEIGHT = 54
 
-SCREEN_PRESETS: dict[str, dict[str, float]] = {
+SCREEN_PRESETS: dict[str, dict[str, Any]] = {
     "Realistico": {"saturation": 1.05, "brightness_max": 78, "smoothing": 1.4},
     "Cinema": {"saturation": 1.20, "brightness_max": 65, "smoothing": 1.8},
     "Neon": {"saturation": 1.55, "brightness_max": 85, "smoothing": 0.8},
     "Naturale": {"saturation": 0.95, "brightness_max": 72, "smoothing": 1.6},
+    "Bassa latenza": {
+        "saturation": 1.10,
+        "brightness_max": 75,
+        "smoothing": 0.2,
+        "fps": 30,
+        "turbo": False,
+    },
 }
 
 
@@ -102,9 +109,67 @@ def list_monitors() -> list[MonitorInfo]:
 
 
 @dataclass
+class SensorZone:
+    """A normalized rectangle on the captured screen (0..1 coordinates)."""
+
+    x: float = 0.4
+    y: float = 0.4
+    w: float = 0.2
+    h: float = 0.2
+
+    def __post_init__(self) -> None:
+        self.w = clamp_float(self.w, 0.02, 1.0, 0.2)
+        self.h = clamp_float(self.h, 0.02, 1.0, 0.2)
+        self.x = clamp_float(self.x, 0.0, 1.0 - self.w, 0.4)
+        self.y = clamp_float(self.y, 0.0, 1.0 - self.h, 0.4)
+
+    def to_dict(self) -> dict[str, float]:
+        return {
+            "x": round(self.x, 4),
+            "y": round(self.y, 4),
+            "w": round(self.w, 4),
+            "h": round(self.h, 4),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Any) -> "SensorZone":
+        if not isinstance(data, dict):
+            return cls()
+        return cls(
+            x=data.get("x", 0.4),
+            y=data.get("y", 0.4),
+            w=data.get("w", 0.2),
+            h=data.get("h", 0.2),
+        )
+
+    def copy(self) -> "SensorZone":
+        return SensorZone.from_dict(self.to_dict())
+
+
+def default_sensor_zones(count: int = 3) -> list[SensorZone]:
+    count = max(1, min(8, int(count)))
+    if count == 1:
+        return [SensorZone(x=0.3, y=0.15, w=0.4, h=0.6)]
+    zones: list[SensorZone] = []
+    band = 1.0 / count
+    for index in range(count):
+        zones.append(
+            SensorZone(
+                x=index * band + 0.01,
+                y=0.12,
+                w=max(0.04, band - 0.02),
+                h=0.68,
+            )
+        )
+    return zones
+
+
+@dataclass
 class ScreenSyncConfig:
     monitor_index: int = 1
     monitor_label: str = ""
+    sampling_mode: str = "zones"
+    sensor_zones: list[SensorZone] = field(default_factory=lambda: default_sensor_zones(3))
     zones: int = 3
     sample_grid: int = 2
     smoothing: float = 1.2
@@ -112,6 +177,7 @@ class ScreenSyncConfig:
     brightness_min: int = 10
     brightness_max: int = 80
     fps: int = 8
+    turbo: bool = False
     ignore_hud: bool = True
     hold_on_black: bool = True
     preset: str = "Realistico"
@@ -119,42 +185,62 @@ class ScreenSyncConfig:
 
     def __post_init__(self) -> None:
         self.monitor_index = clamp_int(self.monitor_index, 1, 16, 1)
+        self.sampling_mode = (
+            self.sampling_mode if self.sampling_mode in ("bands", "zones") else "zones"
+        )
         self.zones = clamp_int(self.zones, 1, 7, 3)
+        cleaned_zones: list[SensorZone] = []
+        for item in (self.sensor_zones or [])[:8]:
+            cleaned_zones.append(
+                item if isinstance(item, SensorZone) else SensorZone.from_dict(item)
+            )
+        if not cleaned_zones:
+            cleaned_zones = default_sensor_zones(3)
+        self.sensor_zones = cleaned_zones
         self.sample_grid = clamp_int(self.sample_grid, 1, 3, 2)
-        self.smoothing = round(clamp_float(self.smoothing, 0.3, 3.0, 1.2), 2)
+        self.smoothing = round(clamp_float(self.smoothing, 0.1, 3.0, 1.2), 2)
         self.saturation = round(clamp_float(self.saturation, 0.5, 2.0, 1.25), 2)
-        self.brightness_min = clamp_int(self.brightness_min, 0, 40, 8)
+        self.brightness_min = clamp_int(self.brightness_min, 0, 40, 10)
         self.brightness_max = clamp_int(self.brightness_max, 20, 100, 80)
         if self.brightness_max < self.brightness_min:
             self.brightness_max = self.brightness_min
-        self.fps = clamp_int(self.fps, 3, 30, 8)
+        self.fps = clamp_int(self.fps, 3, 60, 8)
+        self.turbo = bool(self.turbo)
         self.ignore_hud = bool(self.ignore_hud)
         self.hold_on_black = bool(self.hold_on_black)
         self.preset = self.preset if self.preset in SCREEN_PRESETS else "Realistico"
+        count = self.zone_count
         cleaned: dict[str, int] = {}
         for device_id, zone in (self.zone_map or {}).items():
-            cleaned[str(device_id)] = clamp_int(zone, -1, self.zones - 1, -1)
+            cleaned[str(device_id)] = clamp_int(zone, -1, count - 1, -1)
         self.zone_map = cleaned
+
+    @property
+    def zone_count(self) -> int:
+        return len(self.sensor_zones) if self.sampling_mode == "zones" else self.zones
 
     @property
     def sample_points(self) -> int:
         return self.sample_grid * self.sample_grid
 
     def assign_default_zones(self, devices: list[LightDevice]) -> None:
+        count = max(1, self.zone_count)
         for index, device in enumerate(devices):
             if device.id not in self.zone_map:
-                self.zone_map[device.id] = index % self.zones if self.zones > 1 else -1
+                self.zone_map[device.id] = index % count if count > 1 else -1
 
     def zone_for(self, device: LightDevice, fallback_index: int = 0) -> int:
         zone = self.zone_map.get(device.id)
         if zone is None:
-            zone = fallback_index % self.zones if self.zones > 1 else -1
+            zone = fallback_index % self.zone_count if self.zone_count > 1 else -1
         return zone
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "monitor_index": self.monitor_index,
             "monitor_label": self.monitor_label,
+            "sampling_mode": self.sampling_mode,
+            "sensor_zones": [zone.to_dict() for zone in self.sensor_zones],
             "zones": self.zones,
             "sample_grid": self.sample_grid,
             "smoothing": self.smoothing,
@@ -162,6 +248,7 @@ class ScreenSyncConfig:
             "brightness_min": self.brightness_min,
             "brightness_max": self.brightness_max,
             "fps": self.fps,
+            "turbo": self.turbo,
             "ignore_hud": self.ignore_hud,
             "hold_on_black": self.hold_on_black,
             "preset": self.preset,
@@ -169,26 +256,33 @@ class ScreenSyncConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: Any) -> ScreenSyncConfig:
+    def from_dict(cls, data: Any) -> "ScreenSyncConfig":
         if not isinstance(data, dict):
             return cls()
         return cls(
             monitor_index=data.get("monitor_index", 1),
             monitor_label=str(data.get("monitor_label") or ""),
+            sampling_mode=data.get("sampling_mode", "zones"),
+            sensor_zones=[
+                SensorZone.from_dict(item)
+                for item in (data.get("sensor_zones") or [])
+                if isinstance(item, dict)
+            ],
             zones=data.get("zones", 3),
             sample_grid=data.get("sample_grid", 2),
             smoothing=data.get("smoothing", 1.2),
             saturation=data.get("saturation", 1.25),
-            brightness_min=data.get("brightness_min", 8),
+            brightness_min=data.get("brightness_min", 10),
             brightness_max=data.get("brightness_max", 80),
             fps=data.get("fps", 8),
+            turbo=data.get("turbo", False),
             ignore_hud=data.get("ignore_hud", True),
             hold_on_black=data.get("hold_on_black", True),
             preset=data.get("preset", "Realistico"),
             zone_map=data.get("zone_map") or {},
         )
 
-    def copy(self) -> ScreenSyncConfig:
+    def copy(self) -> "ScreenSyncConfig":
         return ScreenSyncConfig.from_dict(self.to_dict())
 
 
@@ -287,30 +381,55 @@ class ScreenAnalyzer:
     ) -> ScreenFrame:
         started = time.perf_counter()
         small = image.resize((ANALYSIS_WIDTH, ANALYSIS_HEIGHT), Image.Resampling.BILINEAR)
-        content = _content_box(small)
-        left, top, right, bottom = content
-        content_height = max(1, bottom - top)
-        if config.ignore_hud:
-            hud_top = top + int(content_height * 0.12)
-            hud_bottom = bottom - int(content_height * 0.15)
-        else:
-            hud_top, hud_bottom = top, bottom
-        if hud_bottom <= hud_top + 2:
-            hud_top, hud_bottom = top, bottom
-
-        zone_count = max(1, config.zones)
-        raw_zones: list[tuple[tuple[float, float, float], float]] = []
-        for zone_index in range(zone_count):
-            zone_left = left + (right - left) * zone_index // zone_count
-            zone_right = left + (right - left) * (zone_index + 1) // zone_count
-            raw_zones.append(
-                self._zone_mean(
-                    small,
-                    (zone_left, hud_top, zone_right, hud_bottom),
-                    config.sample_grid,
+        if config.sampling_mode == "zones":
+            raw_zones: list[tuple[tuple[float, float, float], float]] = []
+            for sensor in config.sensor_zones:
+                box = (
+                    int(sensor.x * small.width),
+                    int(sensor.y * small.height),
+                    int((sensor.x + sensor.w) * small.width),
+                    int((sensor.y + sensor.h) * small.height),
                 )
-            )
-        global_raw = self._zone_mean(small, (left, hud_top, right, hud_bottom), 1)
+                raw_zones.append(self._zone_mean(small, box, config.sample_grid))
+            if raw_zones:
+                if len(raw_zones) == 1:
+                    global_raw = raw_zones[0]
+                else:
+                    global_raw = (
+                        (
+                            sum(item[0][0] for item in raw_zones) / len(raw_zones),
+                            sum(item[0][1] for item in raw_zones) / len(raw_zones),
+                            sum(item[0][2] for item in raw_zones) / len(raw_zones),
+                        ),
+                        sum(item[1] for item in raw_zones) / len(raw_zones),
+                    )
+            else:
+                global_raw = ((0.0, 0.0, 0.0), 0.0)
+        else:
+            content = _content_box(small)
+            left, top, right, bottom = content
+            content_height = max(1, bottom - top)
+            if config.ignore_hud:
+                hud_top = top + int(content_height * 0.12)
+                hud_bottom = bottom - int(content_height * 0.15)
+            else:
+                hud_top, hud_bottom = top, bottom
+            if hud_bottom <= hud_top + 2:
+                hud_top, hud_bottom = top, bottom
+
+            zone_count = max(1, config.zones)
+            raw_zones = []
+            for zone_index in range(zone_count):
+                zone_left = left + (right - left) * zone_index // zone_count
+                zone_right = left + (right - left) * (zone_index + 1) // zone_count
+                raw_zones.append(
+                    self._zone_mean(
+                        small,
+                        (zone_left, hud_top, zone_right, hud_bottom),
+                        config.sample_grid,
+                    )
+                )
+            global_raw = self._zone_mean(small, (left, hud_top, right, hud_bottom), 1)
 
         if not self._state or len(self._state) != len(raw_zones):
             self._state = [_SampleState(rgb=color, luma=luma) for color, luma in raw_zones]
@@ -440,12 +559,16 @@ class ScreenSyncRunner:
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._pending: dict[str, Future[LightResult]] = {}
+        self._pending_turbo: dict[str, bool] = {}
+        self._turbo_fallback: set[str] = set()
         self._failed_details: dict[str, tuple[str, str]] = {}
         self._last_colors: dict[str, tuple[int, int, int]] = {}
         self._last_targets: dict[str, tuple[tuple[int, int, int], int]] = {}
         self._last_frame: ScreenFrame | None = None
         self._frame_lock = threading.Lock()
         self._frame_count = 0
+        self._analysis_frames = 0
+        self._analysis_started = 0.0
         self._capture_error = ""
         self._started_at = 0.0
 
@@ -475,6 +598,21 @@ class ScreenSyncRunner:
     def frame_count(self) -> int:
         return self._frame_count
 
+    @property
+    def effective_fps(self) -> float:
+        elapsed = time.monotonic() - self._analysis_started if self._analysis_started else 0.0
+        if elapsed <= 0.001:
+            return 0.0
+        return self._analysis_frames / elapsed
+
+    @property
+    def target_fps(self) -> int:
+        return self._config.fps
+
+    @property
+    def turbo_fallback_ids(self) -> set[str]:
+        return set(self._turbo_fallback)
+
     def start(
         self,
         devices: list[LightDevice],
@@ -488,22 +626,27 @@ class ScreenSyncRunner:
         self._devices = list(devices)
         self._zone_map = dict(zone_map or self._config.zone_map)
         self._pending = {}
+        self._pending_turbo = {}
+        self._turbo_fallback = set()
         self._failed_details = {}
         self._last_colors = {}
         self._last_targets = {}
         self._last_frame = None
         self._capture_error = ""
         self._frame_count = 0
+        self._analysis_frames = 0
         self._stop.clear()
         self._started_at = time.monotonic()
+        self._analysis_started = self._started_at
         self._thread = threading.Thread(target=self._loop, name="screen-sync", daemon=True)
         self._thread.start()
         LOGGER.info(
-            "Screen Sync avviato: %d luci, monitor %d, %d zone, %d fps",
+            "Screen Sync avviato: %d luci, monitor %d, %d zone, %d fps%s",
             len(devices),
             config.monitor_index,
-            config.zones,
+            config.zone_count,
             config.fps,
+            " · turbo music" if config.turbo else "",
         )
 
     def stop(self) -> dict[str, tuple[int, int, int]]:
@@ -548,6 +691,7 @@ class ScreenSyncRunner:
                     dt,
                     capture_ms=capture_ms,
                 )
+                self._analysis_frames += 1
                 self._capture_error = ""
                 with self._frame_lock:
                     self._last_frame = frame
@@ -559,11 +703,24 @@ class ScreenSyncRunner:
                             if not pending.done():
                                 continue
                             self._pending.pop(device.id, None)
+                            was_turbo = self._pending_turbo.pop(device.id, False)
                             try:
                                 result = pending.result()
                             except Exception:
                                 result = None
                             if result is not None and not result.ok:
+                                if was_turbo and result.kind in (
+                                    ERROR_PROTOCOL,
+                                    ERROR_UNSUPPORTED,
+                                ):
+                                    self._turbo_fallback.add(device.id)
+                                    LOGGER.warning(
+                                        "Screen Sync: turbo non supportato su %s (%s), "
+                                        "passo al frame normale.",
+                                        device.name,
+                                        result.error,
+                                    )
+                                    continue
                                 if result.kind in (
                                     ERROR_OFFLINE,
                                     ERROR_AUTH,
@@ -583,28 +740,40 @@ class ScreenSyncRunner:
                         if device.id in self._failed_details:
                             continue
                         zone = self._zone_map.get(device.id)
+                        zone_count = len(frame.zones)
                         if zone is None:
-                            zone = index % self._config.zones if self._config.zones > 1 else -1
-                        target = frame.global_target if zone < 0 else frame.zones[zone % len(frame.zones)]
+                            zone = index % zone_count if zone_count > 1 else -1
+                        target = frame.global_target if zone < 0 else frame.zones[zone % zone_count]
                         self._last_colors[device.id] = target.rgb
                         self._last_targets[device.id] = (target.rgb, target.brightness)
+                        use_turbo = (
+                            self._config.turbo
+                            and device.id not in self._turbo_fallback
+                        )
                         try:
-                            self._pending[device.id] = self.controller.submit_colour_frame(
+                            submit = (
+                                self.controller.submit_music_frame
+                                if use_turbo
+                                else self.controller.submit_colour_frame
+                            )
+                            self._pending[device.id] = submit(
                                 device, target.rgb, target.brightness
                             )
+                            self._pending_turbo[device.id] = use_turbo
                             self._frame_count += 1
                             if self._frame_count % 100 == 0:
                                 LOGGER.info(
-                                    "Screen Sync: %d frame · %s #%02x%02x%02x · %d%%",
+                                    "Screen Sync: %d frame · %s #%02x%02x%02x · %d%%%s",
                                     self._frame_count,
                                     device.name,
                                     *target.rgb,
                                     target.brightness,
+                                    " · turbo" if use_turbo else "",
                                 )
                         except Exception:
                             LOGGER.exception("Screen Sync: impossibile accodare il frame.")
                 target_fps = max(1, self._config.fps)
                 elapsed = time.perf_counter() - frame_started
-                self._stop.wait(max(0.005, (1.0 / target_fps) - elapsed))
+                self._stop.wait(max(0.001, (1.0 / target_fps) - elapsed))
         finally:
             capture.close()
