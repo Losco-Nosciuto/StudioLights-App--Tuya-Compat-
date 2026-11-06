@@ -116,6 +116,8 @@ class StudioLightsApp(ctk.CTk):
         self.flow_config = FlowConfig()
         self._flow_running = False
         self._flow_devices: list[LightDevice] = []
+        self._flow_health_job: str | None = None
+        self._flow_failed_seen: set[str] = set()
 
         self.store = LightStore(self.root_dir)
         self.scene_store = SceneStore(self.root_dir)
@@ -1612,6 +1614,13 @@ class StudioLightsApp(ctk.CTk):
         self.flow_runner.start(active, config)
         self._flow_running = True
         self._flow_devices = active
+        self._flow_failed_seen = set()
+        if self._flow_health_job is not None:
+            try:
+                self.after_cancel(self._flow_health_job)
+            except tk.TclError:
+                pass
+        self._flow_health_job = self.after(1000, self._poll_flow_health)
         self._update_flow_ui_running()
         self._update_selection_ui()
         failures = len(devices) - len(active)
@@ -1620,14 +1629,67 @@ class StudioLightsApp(ctk.CTk):
             message += f" · {failures} non raggiungibili"
         self._set_status(message, "success" if not failures else "warning")
 
+    def _poll_flow_health(self) -> None:
+        self._flow_health_job = None
+        if self._closing or not self._flow_running:
+            return
+        details = self.flow_runner.failed_details
+        new_ids = set(details) - self._flow_failed_seen
+        if new_ids:
+            self._flow_failed_seen.update(new_ids)
+            offline: list[str] = []
+            incompatible: list[str] = []
+            for device_id in new_ids:
+                kind, _error = details[device_id]
+                device = self._find_device(device_id)
+                name = device.name if device else device_id
+                if kind in (ERROR_OFFLINE, ERROR_AUTH):
+                    self.health[device_id] = False
+                    offline.append(name)
+                else:
+                    incompatible.append(name)
+                row = self.rows.get(device_id)
+                if row is not None:
+                    row.set_state(
+                        self.states.get(device_id, LightState()),
+                        self.health.get(device_id),
+                    )
+            self._update_online_chip()
+            self._update_selection_ui()
+            active = max(0, len(self._flow_devices) - len(details))
+            parts = [f"{active}/{len(self._flow_devices)} luci attive"]
+            if offline:
+                parts.append("offline: " + ", ".join(offline))
+            if incompatible:
+                parts.append("non compatibili: " + ", ".join(incompatible))
+            self._set_status("⚠ Flow · " + " · ".join(parts), "warning")
+            if active == 0:
+                self.stop_flow(announce=False)
+                self._set_status(
+                    "Flow interrotto: nessuna luce raggiungibile.", "danger"
+                )
+                return
+        self._flow_health_job = self.after(1200, self._poll_flow_health)
+
     def stop_flow(self, announce: bool = True) -> None:
         if not self._flow_running:
             return
+        if self._flow_health_job is not None:
+            try:
+                self.after_cancel(self._flow_health_job)
+            except tk.TclError:
+                pass
+            self._flow_health_job = None
         last_colors = self.flow_runner.stop()
-        failed = self.flow_runner.failed_ids
+        details = self.flow_runner.failed_details
+        offline = [
+            device_id
+            for device_id, (kind, _error) in details.items()
+            if kind in (ERROR_OFFLINE, ERROR_AUTH)
+        ]
         self._flow_running = False
         self._flow_devices = []
-        for device_id in failed:
+        for device_id in offline:
             self.health[device_id] = False
 
         for device_id, rgb in last_colors.items():
@@ -1649,9 +1711,11 @@ class StudioLightsApp(ctk.CTk):
         self._schedule_save()
         if announce:
             message = "■ Flow fermato · ultima tinta mantenuta"
-            if failed:
-                message += f" · {len(failed)} luci offline"
-            self._set_status(message, "warning" if failed else "muted")
+            if offline:
+                message += f" · {len(offline)} luci offline"
+            elif details:
+                message += f" · {len(details)} luci non compatibili"
+            self._set_status(message, "warning" if details else "muted")
 
     def _update_flow_ui_running(self) -> None:
         if self._flow_running:

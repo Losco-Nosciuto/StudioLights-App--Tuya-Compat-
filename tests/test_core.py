@@ -314,12 +314,20 @@ class ControllerPayloadTests(unittest.TestCase):
 
 class FlowRunnerTests(unittest.TestCase):
     class FakeController:
-        def __init__(self) -> None:
+        def __init__(self, fail_id: str | None = None) -> None:
             self.calls: list[tuple[str, tuple[int, int, int], int]] = []
+            self.fail_id = fail_id
 
         def submit_colour_frame(self, device, rgb, brightness):
             future: Future = Future()
-            future.set_result(SimpleNamespace(ok=True, kind="", error=""))
+            ok = device.id != self.fail_id
+            future.set_result(
+                SimpleNamespace(
+                    ok=ok,
+                    kind="" if ok else ERROR_OFFLINE,
+                    error="" if ok else "timeout",
+                )
+            )
             self.calls.append((device.id, rgb, brightness))
             return future
 
@@ -364,6 +372,22 @@ class FlowRunnerTests(unittest.TestCase):
         colors = runner.stop()
         self.assertEqual(len(colors), 2)
         self.assertNotEqual(colors["flow-a"], colors["flow-b"])
+
+    def test_failed_light_is_reported(self) -> None:
+        controller = self.FakeController(fail_id="flow-b")
+        runner = FlowRunner(controller)  # type: ignore[arg-type]
+        config = FlowConfig(
+            palette=list(DEFAULT_FLOW_PALETTE),
+            segment_seconds=1.0,
+            fps=10,
+            phase_offset=False,
+            brightness=80,
+        )
+        runner.start(self._devices(), config)
+        time.sleep(0.25)
+        self.assertIn("flow-b", runner.failed_ids)
+        self.assertEqual(runner.failed_details["flow-b"][0], ERROR_OFFLINE)
+        runner.stop()
 
 
 if __name__ == "__main__":

@@ -36,6 +36,7 @@ class FlowRunner:
         self._pending: dict[str, Future[LightResult]] = {}
         self._last_rgb: dict[str, tuple[int, int, int]] = {}
         self._failed: set[str] = set()
+        self._failed_details: dict[str, tuple[str, str]] = {}
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._started_at = 0.0
@@ -48,6 +49,11 @@ class FlowRunner:
     @property
     def failed_ids(self) -> set[str]:
         return set(self._failed)
+
+    @property
+    def failed_details(self) -> dict[str, tuple[str, str]]:
+        """device_id -> (error_kind, error_message) for lights removed from the flow."""
+        return dict(self._failed_details)
 
     def config_snapshot(self) -> FlowConfig:
         with self._config_lock:
@@ -66,6 +72,7 @@ class FlowRunner:
         self._pending = {}
         self._last_rgb = {}
         self._failed = set()
+        self._failed_details = {}
         self._stop.clear()
         self._started_at = time.monotonic()
         self._thread = threading.Thread(
@@ -118,6 +125,7 @@ class FlowRunner:
                             ERROR_UNSUPPORTED,
                         ):
                             self._failed.add(device.id)
+                            self._failed_details[device.id] = (result.kind, result.error)
                             LOGGER.warning(
                                 "Flow: %s rimosso (%s).", device.name, result.error
                             )

@@ -522,6 +522,11 @@ class LightController:
                     red, green, blue, dpset.get("value_hexformat") or "hsv16"
                 )
             }
+            # Re-assert colour mode on every frame: some firmwares silently
+            # fall back to white when only the colour DP changes.
+            mode_dp = dpset.get("mode")
+            if mode_dp:
+                payload[mode_dp] = "colour"
             brightness_dp = dpset.get("brightness")
             if brightness_dp:
                 percentage = max(1, min(100, int(brightness)))
