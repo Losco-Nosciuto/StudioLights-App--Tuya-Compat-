@@ -342,6 +342,8 @@ Totale attuale: **26 test** (19 core + 7 Screen Sync).
 | Temperatura invertita | alcuni modelli mappano 0 = freddo. È documentato come limite noto. |
 | La GUI si blocca | non dovrebbe: i comandi sono in thread. Controlla `logs/studiolights.log`. |
 | La scansione non trova nulla | UDP broadcast bloccato dal firewall o rete guest/client isolation. |
+| Due luci hanno lo stesso IP | errore di configurazione: apri Impostazioni e assegna IP univoci; il salvataggio ora blocca gli IP duplicati. Usa le prenotazioni DHCP del router. |
+| Una luce non compare nel router | non è connessa al Wi-Fi: accendila, usa la stessa rete 2.4 GHz delle altre e cerca il suo MAC. |
 
 ## Limiti noti
 

@@ -826,6 +826,21 @@ class LightEditorDialog(BaseDialog):
             device.device_id, exclude=self.device.id if self.device else None
         ):
             errors.append("Esiste già una luce con questo Device ID.")
+        if device.ip:
+            exclude_id = self.device.id if self.device else None
+            conflict = next(
+                (
+                    item
+                    for item in self.app.devices
+                    if item.ip == device.ip and item.id != exclude_id
+                ),
+                None,
+            )
+            if conflict is not None:
+                errors.append(
+                    f"L'IP {device.ip} è già usato da «{conflict.name}». "
+                    "Ogni lampadina deve avere un IP univoco."
+                )
         if errors:
             self.error_label.configure(text="\n".join(errors))
             return None
