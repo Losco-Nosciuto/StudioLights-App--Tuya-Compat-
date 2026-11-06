@@ -1100,7 +1100,7 @@ class StudioLightsApp(ctk.CTk):
         ).pack(side="left", padx=(0, 6))
         self.flow_fps_switch = ctk.CTkSegmentedButton(
             fps_box,
-            values=["6", "10", "15"],
+            values=["3", "6", "10", "15"],
             height=26,
             corner_radius=6,
             border_width=2,
@@ -1551,7 +1551,7 @@ class StudioLightsApp(ctk.CTk):
         self.flow_speed_slider.set(self.flow_config.segment_seconds)
         self.flow_speed_label.configure(text=f"{self.flow_config.segment_seconds:.1f} s")
         fps_value = str(self.flow_config.fps)
-        if fps_value not in ("6", "10", "15"):
+        if fps_value not in ("3", "6", "10", "15"):
             fps_value = "10"
         self.flow_fps_switch.set(fps_value)
         self.flow_phase_var.set(self.flow_config.phase_offset)

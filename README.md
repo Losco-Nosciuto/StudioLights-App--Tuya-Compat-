@@ -31,7 +31,7 @@ Studio Lights risolve questo con:
   - **Bianco**: luminosità 1–100% e temperatura colore caldo→freddo 0–100%.
   - **Colore**: color picker HSV visuale, preset rapidi, luminosità.
   - **Scene HW**: invio delle scene native del firmware Tuya (indice + payload opzionale).
-  - **Flow**: fade infinito tra 8 colori, 0.5–5 s per transizione, 6/10/15 fps,
+  - **Flow**: fade infinito tra 8 colori, 0.5–5 s per transizione, 3/6/10/15 fps,
     sfasamento tra le luci e stop immediato.
 - **Scene Studio** salvabili/richiamabili con un clic, con tipo *Globale*, *Snapshot* o
   *Flow*. Sovrascrittura ed eliminazione dal menu `⋯` della card.
@@ -155,7 +155,7 @@ tramite il Device ID. Non serve rifare il wizard.
 1. Seleziona le luci, apri il tab **Flow**.
 2. Clicca uno degli 8 campioni per cambiarlo, oppure carica un preset
    **Cyberpunk / Tramonto / Foresta / Neon**.
-3. Imposta **Velocità** (0.5–5 s per transizione), **FPS** (6/10/15) e **Sfasamento luci**.
+3. Imposta **Velocità** (0.5–5 s per transizione), **FPS** (3/6/10/15) e **Sfasamento luci**.
 4. Premi **AVVIA FLOW**. Il fade continua finché non premi **■ STOP FLOW** in basso a
    destra o applichi un altro comando.
 5. **Salva scena Flow** per ritrovare palette e velocità nella griglia scene.
@@ -298,7 +298,7 @@ atomici, classificazione errori, matching IP, interpolazione colori e motore Flo
 | `Check device key or version` | Local Key errata o protocollo sbagliato: prova 3.3, 3.4, 3.5. |
 | La luce accende ma il colore no | modello solo bianco (CCT) o DP colore non esposto; il test mostra il tipo. |
 | Scena HW non funziona | le scene sono specifiche del firmware; prova indici 1–4, poi il payload Type B. |
-| Flow a scatti | abbassa gli FPS (6), aumenta i secondi per transizione, avvicina le luci al router; il fade è generato dal PC, non dal firmware. |
+| Flow a scatti | abbassa gli FPS (3 o 6), aumenta i secondi per transizione, avvicina le luci al router; il fade è generato dal PC, non dal firmware. |
 | Flow non parte | nessuna luce selezionata, oppure tutte offline; controlla la barra di stato. |
 | Temperatura invertita | alcuni modelli mappano 0 = freddo. È documentato come limite noto. |
 | La GUI si blocca | non dovrebbe: i comandi sono in thread. Controlla `logs/studiolights.log`. |

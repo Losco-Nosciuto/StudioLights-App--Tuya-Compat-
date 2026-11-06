@@ -40,6 +40,7 @@ class FlowRunner:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._started_at = 0.0
+        self._frame_count = 0
 
     # ------------------------------------------------------------------ public
     @property
@@ -75,6 +76,7 @@ class FlowRunner:
         self._failed_details = {}
         self._stop.clear()
         self._started_at = time.monotonic()
+        self._frame_count = 0
         self._thread = threading.Thread(
             target=self._loop, name="flow-runner", daemon=True
         )
@@ -143,6 +145,16 @@ class FlowRunner:
                     self._pending[device.id] = self.controller.submit_colour_frame(
                         device, rgb, config.brightness
                     )
+                    self._frame_count += 1
+                    if self._frame_count % 60 == 0:
+                        LOGGER.info(
+                            "Flow: %d frame inviati · ultimo %s #%02x%02x%02x",
+                            self._frame_count,
+                            device.name,
+                            rgb[0],
+                            rgb[1],
+                            rgb[2],
+                        )
                 except Exception:  # pragma: no cover - executor shut down
                     LOGGER.exception("Flow: impossibile accodare il frame.")
                     self._failed.add(device.id)
