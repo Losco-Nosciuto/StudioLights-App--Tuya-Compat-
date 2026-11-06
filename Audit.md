@@ -236,7 +236,7 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 | Socket persistente stale dopo sleep/router | primo comando fallito | media | retry manuale, drop socket e ricreazione |
 | Local key in chiaro su disco | accesso locale alle luci | insita nel protocollo | `.gitignore`, avviso in UI/README |
 | `deviceScan` bloccato da firewall | IP non aggiornati | media | inserimento manuale, log |
-| Differenze CTk su altre versioni | errori layout | bassa | requirements con lower bound; test su 6.0 |
+| Differenze CTk su altre versioni | errori layout | bassa | requirements con upper bound `<7`; test su 6.0 |
 | Loop di eventi Tk su chiusura | warning "invalid command name" in console | bassa | innocui; `pythonw` non mostra console |
 
 ---

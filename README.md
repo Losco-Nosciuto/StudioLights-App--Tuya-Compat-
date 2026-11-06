@@ -53,9 +53,9 @@ Studio Lights risolve questo con:
 Dipendenze Python (installate automaticamente da `run.bat` / `run.sh`):
 
 ```
-tinytuya>=1.20.0
-customtkinter>=6.0.0
-Pillow>=10.0.0
+tinytuya>=1.20.0,<2
+customtkinter>=6.0.0,<7
+Pillow>=10.0.0,<14
 ```
 
 ## Avvio rapido

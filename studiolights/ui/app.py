@@ -1909,7 +1909,7 @@ class StudioLightsApp(ctk.CTk):
                 text, color = f"ONLINE {online}/{total}", COLORS["success"]
             elif online > 0:
                 text, color = f"ONLINE {online}/{total}", COLORS["warning"]
-            elif offline == total:
+            elif offline > 0:
                 text, color = f"OFFLINE {offline}/{total}", COLORS["danger"]
             else:
                 text, color = f"{total} LUCI", COLORS["dim"]
