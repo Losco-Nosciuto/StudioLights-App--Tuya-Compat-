@@ -1,4 +1,4 @@
-# Audit tecnico — Studio Lights 1.2.1
+# Audit tecnico — Studio Lights 1.2.2
 
 **Data:** 7 novembre 2026
 **Ambiente di sviluppo:** Windows 11, Python 3.12.10, Tk 8.6
@@ -49,7 +49,7 @@ sincronizzazione tra PC, scenari fuori dalla LAN, supporto a prese/termostati.
 | Snapshot multi-luce | `Scene(type="snapshot")` + `lights` | test GUI + persistenza |
 | Flow 8 colori, fade infinito, 0.5–5 s | `flow.py`, `FlowRunner`, tab Flow | 2 test motore + test GUI start/stop |
 | Scena Flow salvabile | `Scene(type="flow")` + `FlowConfig` | round-trip + GUI |
-| Screen Sync: sensori 16:9, fps, turbo | `screen_sync.py`, `ui/screen_sync.py` | 10 test unitari + GUI live |
+| Screen Sync: sensori 16:9, fps, colore | `screen_sync.py`, `ui/screen_sync.py` | 13 test unitari + GUI live |
 | Cattura monitor con mss | `ScreenCapture`, `list_monitors` | cattura reale desktop, 42 frame |
 | Elimina / sovrascrivi scena | menu card + `delete_scene` / `overwrite_scene` | codice + dialogo conferma |
 | Timeout 1.5 s, retry 1 | `LightController.__init__`, `_get_bulb` | ispezione + test offline (~1.5 s) |
@@ -145,8 +145,13 @@ Screen Sync è separato dal Flow palette ma riusa `submit_colour_frame`:
 - **Maschere**: con le fasce automatiche si rileva il letterbox sulle righe nere e si
   taglia l'HUD superiore 12% / inferiore 15% (opzionale). Con i sensori liberi la
   maschera è la zona scelta dall'utente.
-- **Colore**: media RGB per zona → HSV; la saturazione viene aumentata dal preset, il
-  valore viene normalizzato a 1 e la luminosità del bulbo è pilotata dalla luminanza.
+- **Colore**: media RGB per zona → HSV; la saturazione usa una curva morbida
+  (`s ** 0.85 * moltiplicatore`) che rinforza soprattutto i toni chiari/pastello.
+  Il valore viene normalizzato a 1 e la luminosità del bulbo è pilotata dalla luminanza.
+- **Bianco dedicato**: se la saturazione è sotto la soglia (default 0.08) il target
+  non viene inviato in RGB — dove una traccia di blu diventa un cast bluastro — ma in
+  `mode="white"` con temperatura calda/fredda dedotta dalla tinta. Il bianco usa così
+  i LED bianchi dedicati del bulbo.
 - **Smoothing**: EMA con `alpha = 1 - exp(-dt / tau)`; `tau` 0.1–3 s.
 - **Frame rate**: richiesta 5–60 fps, ma il loop attende il completamento della cattura;
   `effective_fps` misura il rate reale e la UI lo mostra. Con `mss` a 1440p il tetto è
@@ -283,16 +288,16 @@ Per questo il progetto converte esplicitamente le percentuali.
 
 ```
 python -m compileall studiolights main.py tests      → OK
-python -m unittest discover -s tests -v               → 29 test, OK
+python -m unittest discover -s tests -v               → 32 test, OK
 ruff check . --exclude .venv --select F,E9            → OK
 ```
 
-I 29 test coprono: normalizzazione versioni, clamp/serializzazione stato, validazione
+I 32 test coprono: normalizzazione versioni, clamp/serializzazione stato, validazione
 device, conversioni Kelvin, round-trip scene global/snapshot/flow, FlowConfig e
 interpolazione colori, import wizard (lista e dict), creazione template, persistenza luci
 e scene, payload atomico colore/bianco/off, decodifica stato, classificazione errori,
 matching IP, motore Flow e Screen Sync (config, sensori liberi, fasce, HUD/letterbox,
-smoothing, runner con capture finta, turbo con fallback).
+smoothing, bianco dedicato, saturazione, runner con capture finta, turbo con fallback).
 
 ### GUI
 
@@ -406,6 +411,17 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 ---
 
 ## 12. Changelog
+
+### 1.2.2 — 2026-11-07
+
+- **Gestione colore Screen Sync**: i colori quasi neutri passano ai LED bianchi dedicati
+  con temperatura dedotta dalla tinta, eliminando il cast blu/viola del bianco RGB
+  sintetizzato; i toni chiari ricevono una curva di saturazione più aggressiva.
+- Nuovo switch **Bianco dedicato per colori neutri** e nota sulla luminosità massima
+  (>85% il bulbo mescola i LED bianchi e desatura i colori).
+- Il runner usa il frame bianco anche con turbo attivo (il music mode resta solo per i
+  colori), con lo stesso fallback automatico.
+- Test: **32** (13 Screen Sync), inclusi bianco dedicato e saturazione dei toni pastello.
 
 ### 1.2.1 — 2026-11-07
 

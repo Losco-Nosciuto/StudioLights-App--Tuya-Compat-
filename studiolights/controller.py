@@ -497,6 +497,9 @@ class LightController:
         device: LightDevice,
         rgb: tuple[int, int, int],
         brightness: int,
+        *,
+        white: bool = False,
+        colortemp: int = 50,
     ) -> Future[LightResult]:
         """Queue one animation frame using the same atomic payload as static scenes.
 
@@ -504,11 +507,16 @@ class LightController:
         ``build_dps`` instead of sending a hand-built subset. This keeps switch,
         brightness, colour and mode in the proven order; some firmwares drop
         colour updates when mode/brightness arrive in a different order.
+
+        ``white=True`` routes near-neutral colours through the dedicated white
+        LEDs with the given colour temperature, avoiding the cool/blue cast of
+        RGB-synthesised white.
         """
         desired = LightState(
             power=True,
-            mode="colour",
+            mode="white" if white else "colour",
             brightness=brightness,
+            colortemp=colortemp,
             rgb=rgb,
         )
 

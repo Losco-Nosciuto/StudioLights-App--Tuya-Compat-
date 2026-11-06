@@ -30,6 +30,8 @@
   "brightness_max": 80,
   "fps": 8,
   "turbo": false,
+  "neutral_white": true,
+  "neutral_threshold": 0.08,
   "ignore_hud": true,
   "hold_on_black": true,
   "preset": "Realistico",

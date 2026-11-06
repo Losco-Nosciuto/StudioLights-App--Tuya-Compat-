@@ -821,7 +821,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         )
 
         toggles = ctk.CTkFrame(card, fg_color="transparent")
-        toggles.grid(row=7, column=0, sticky="ew", padx=14, pady=(4, 12))
+        toggles.grid(row=7, column=0, sticky="ew", padx=14, pady=(4, 2))
         self.hud_var = tk.BooleanVar(value=True)
         ctk.CTkSwitch(
             toggles,
@@ -852,9 +852,27 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             font=font(8),
             command=self._schedule_save,
         ).pack(side="left", padx=(24, 0))
+
+        toggles2 = ctk.CTkFrame(card, fg_color="transparent")
+        toggles2.grid(row=8, column=0, sticky="ew", padx=14, pady=(2, 4))
+        self.neutral_white_var = tk.BooleanVar(value=True)
+        ctk.CTkSwitch(
+            toggles2,
+            text="Bianco dedicato per colori neutri",
+            width=220,
+            variable=self.neutral_white_var,
+            switch_width=30,
+            switch_height=16,
+            fg_color=COLORS["border_light"],
+            progress_color=COLORS["accent"],
+            button_color=COLORS["text"],
+            text_color=COLORS["muted"],
+            font=font(8),
+            command=self._schedule_save,
+        ).pack(side="left")
         self.turbo_var = tk.BooleanVar(value=False)
         ctk.CTkSwitch(
-            toggles,
+            toggles2,
             text="Turbo music (sperimentale)",
             width=200,
             variable=self.turbo_var,
@@ -867,6 +885,19 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             font=font(8),
             command=self._schedule_save,
         ).pack(side="left", padx=(20, 0))
+
+        ctk.CTkLabel(
+            card,
+            text=(
+                "Oltre ~85% di luminosità i LED bianchi si mescolano ai colori e "
+                "li sbiadiscono: per verdi/blu pieni tieni il massimo più basso."
+            ),
+            font=font(8),
+            text_color=COLORS["dim"],
+            anchor="w",
+            justify="left",
+            wraplength=760,
+        ).grid(row=9, column=0, sticky="w", padx=14, pady=(0, 10))
 
     def _slider_row(
         self,
@@ -952,6 +983,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         self.hud_var.set(self._config.ignore_hud)
         self.black_var.set(self._config.hold_on_black)
         self.turbo_var.set(self._config.turbo)
+        self.neutral_white_var.set(self._config.neutral_white)
         self._update_slider_labels()
         self._sync_mode_widgets()
         self._rebuild_zone_map()
@@ -999,6 +1031,8 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             brightness_max=int(round(self.max_slider.get())),
             fps=int(self.fps_menu.get()),
             turbo=bool(self.turbo_var.get()),
+            neutral_white=bool(self.neutral_white_var.get()),
+            neutral_threshold=self._config.neutral_threshold,
             ignore_hud=bool(self.hud_var.get()),
             hold_on_black=bool(self.black_var.get()),
             preset=self._config.preset,

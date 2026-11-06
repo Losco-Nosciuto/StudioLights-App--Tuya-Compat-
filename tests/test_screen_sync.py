@@ -148,6 +148,37 @@ class ScreenAnalyzerTests(unittest.TestCase):
         self.assertTrue(frame.black)
         self.assertTrue(frame.warning)
 
+    def test_near_neutral_uses_white_mode(self) -> None:
+        config = ScreenSyncConfig(
+            sampling_mode="zones",
+            sensor_zones=[SensorZone(x=0.0, y=0.0, w=1.0, h=1.0)],
+            sample_grid=1,
+            smoothing=0.3,
+            saturation=2.0,
+            neutral_white=True,
+            neutral_threshold=0.08,
+        )
+        image = Image.new("RGB", (96, 54), (250, 250, 255))
+        frame = ScreenAnalyzer().update(image, config, 1.0)
+        target = frame.zones[0]
+        self.assertEqual(target.mode, "white")
+        self.assertEqual(target.colortemp, 50)
+
+    def test_pale_colour_is_boosted(self) -> None:
+        config = ScreenSyncConfig(
+            sampling_mode="zones",
+            sensor_zones=[SensorZone(x=0.0, y=0.0, w=1.0, h=1.0)],
+            sample_grid=1,
+            smoothing=0.3,
+            saturation=2.0,
+            neutral_white=False,
+        )
+        image = Image.new("RGB", (96, 54), (255, 255, 200))
+        target = ScreenAnalyzer().update(image, config, 1.0).zones[0]
+        self.assertEqual(target.mode, "colour")
+        self.assertGreater(target.saturation, 0.5)
+        self.assertLess(target.rgb[2], 190)
+
 
 class FakeCapture:
     def __init__(self, image: Image.Image) -> None:
@@ -165,12 +196,15 @@ class FakeController:
     def __init__(self, music_supported: bool = True) -> None:
         self.calls: list[tuple[str, tuple[int, int, int], int]] = []
         self.music_calls: list[tuple[str, tuple[int, int, int], int]] = []
+        self.white_calls: list[tuple[str, int]] = []
         self.music_supported = music_supported
 
-    def submit_colour_frame(self, device, rgb, brightness):
+    def submit_colour_frame(self, device, rgb, brightness, **kwargs):
         future: Future = Future()
         future.set_result(LightResult(device.id, device.name, True))
         self.calls.append((device.id, rgb, brightness))
+        if kwargs.get("white"):
+            self.white_calls.append((device.id, int(kwargs.get("colortemp", 50))))
         return future
 
     def submit_music_frame(self, device, rgb, brightness):
@@ -232,7 +266,7 @@ class ScreenRunnerTests(unittest.TestCase):
 
     def test_runner_turbo_and_fallback(self) -> None:
         controller = FakeController(music_supported=False)
-        image = ScreenAnalyzerTests._stripes()
+        image = Image.new("RGB", (96, 54), (255, 0, 0))
         runner = ScreenSyncRunner(controller)  # type: ignore[arg-type]
         runner._capture_factory = lambda _index: FakeCapture(image)  # type: ignore[assignment]
         device = LightDevice("A", "a", "192.168.1.10", "0123456789abcdef", "3.3")
@@ -251,6 +285,28 @@ class ScreenRunnerTests(unittest.TestCase):
         self.assertTrue(controller.music_calls)
         self.assertTrue(controller.calls)
         self.assertIn("a", runner.turbo_fallback_ids)
+
+    def test_runner_routes_neutral_to_white_mode(self) -> None:
+        controller = FakeController()
+        image = Image.new("RGB", (96, 54), (250, 250, 255))
+        runner = ScreenSyncRunner(controller)  # type: ignore[arg-type]
+        runner._capture_factory = lambda _index: FakeCapture(image)  # type: ignore[assignment]
+        device = LightDevice("A", "a", "192.168.1.10", "0123456789abcdef", "3.3")
+        config = ScreenSyncConfig(
+            sampling_mode="zones",
+            sensor_zones=[SensorZone(x=0.0, y=0.0, w=1.0, h=1.0)],
+            smoothing=0.3,
+            fps=30,
+            turbo=True,
+            neutral_white=True,
+        )
+        runner.start([device], config, {"a": 0})
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and not controller.white_calls:
+            time.sleep(0.02)
+        runner.stop()
+        self.assertTrue(controller.white_calls)
+        self.assertFalse(controller.music_calls)
 
 
 if __name__ == "__main__":

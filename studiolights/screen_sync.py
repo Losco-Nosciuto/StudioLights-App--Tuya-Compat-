@@ -27,6 +27,8 @@ from .util import (
     backup_corrupt_file,
     clamp_float,
     clamp_int,
+    kelvin_from_temp,
+    kelvin_to_rgb,
     read_json,
 )
 
@@ -178,6 +180,8 @@ class ScreenSyncConfig:
     brightness_max: int = 80
     fps: int = 8
     turbo: bool = False
+    neutral_white: bool = True
+    neutral_threshold: float = 0.08
     ignore_hud: bool = True
     hold_on_black: bool = True
     preset: str = "Realistico"
@@ -206,6 +210,8 @@ class ScreenSyncConfig:
             self.brightness_max = self.brightness_min
         self.fps = clamp_int(self.fps, 3, 60, 8)
         self.turbo = bool(self.turbo)
+        self.neutral_white = bool(self.neutral_white)
+        self.neutral_threshold = round(clamp_float(self.neutral_threshold, 0.0, 0.5, 0.08), 3)
         self.ignore_hud = bool(self.ignore_hud)
         self.hold_on_black = bool(self.hold_on_black)
         self.preset = self.preset if self.preset in SCREEN_PRESETS else "Realistico"
@@ -249,6 +255,8 @@ class ScreenSyncConfig:
             "brightness_max": self.brightness_max,
             "fps": self.fps,
             "turbo": self.turbo,
+            "neutral_white": self.neutral_white,
+            "neutral_threshold": self.neutral_threshold,
             "ignore_hud": self.ignore_hud,
             "hold_on_black": self.hold_on_black,
             "preset": self.preset,
@@ -276,6 +284,8 @@ class ScreenSyncConfig:
             brightness_max=data.get("brightness_max", 80),
             fps=data.get("fps", 8),
             turbo=data.get("turbo", False),
+            neutral_white=data.get("neutral_white", True),
+            neutral_threshold=data.get("neutral_threshold", 0.08),
             ignore_hud=data.get("ignore_hud", True),
             hold_on_black=data.get("hold_on_black", True),
             preset=data.get("preset", "Realistico"),
@@ -311,6 +321,8 @@ class ZoneTarget:
     brightness: int
     luma: float
     saturation: float
+    mode: str = "colour"
+    colortemp: int = 50
 
 
 @dataclass
@@ -509,13 +521,37 @@ class ScreenAnalyzer:
     def _target(state: _SampleState, config: ScreenSyncConfig) -> ZoneTarget:
         red, green, blue = (max(0.0, min(255.0, channel)) for channel in state.rgb)
         hue, saturation, _value = colorsys.rgb_to_hsv(red / 255, green / 255, blue / 255)
-        boosted = saturation
-        if saturation > 0.04:
-            boosted = min(1.0, saturation * config.saturation)
-        target_r, target_g, target_b = colorsys.hsv_to_rgb(hue, boosted, 1.0)
         span = max(0, config.brightness_max - config.brightness_min)
         brightness = config.brightness_min + int(round(span * (max(0.0, state.luma) ** 0.75)))
         brightness = max(config.brightness_min, min(config.brightness_max, brightness))
+
+        if config.neutral_white and saturation <= config.neutral_threshold:
+            # Near-neutral colours are unreliable in RGB colour mode: a 1–2%
+            # blue tint becomes a visible blue/purple cast. Use the dedicated
+            # white LEDs instead, choosing a warm/cool temperature from the tint.
+            balance = (red - blue) / max(1.0, red + blue)
+            if saturation <= 0.03:
+                # Essentially grey/white: any residual tint is sensor noise.
+                colortemp = 50
+            else:
+                colortemp = clamp_int(int(round(50 - balance * 50)), 5, 95, 50)
+            preview = kelvin_to_rgb(kelvin_from_temp(colortemp))
+            return ZoneTarget(
+                rgb=preview,
+                brightness=brightness,
+                luma=state.luma,
+                saturation=0.0,
+                mode="white",
+                colortemp=colortemp,
+            )
+
+        # Boost saturation with a soft curve: pale colours gain more than
+        # already-saturated ones, so light yellows/creams stay recognisable.
+        if saturation <= 0.03:
+            boosted = 0.0
+        else:
+            boosted = min(1.0, pow(saturation, 0.85) * config.saturation)
+        target_r, target_g, target_b = colorsys.hsv_to_rgb(hue, boosted, 1.0)
         return ZoneTarget(
             rgb=(
                 int(round(target_r * 255)),
@@ -748,27 +784,33 @@ class ScreenSyncRunner:
                         self._last_targets[device.id] = (target.rgb, target.brightness)
                         use_turbo = (
                             self._config.turbo
+                            and target.mode == "colour"
                             and device.id not in self._turbo_fallback
                         )
                         try:
-                            submit = (
-                                self.controller.submit_music_frame
-                                if use_turbo
-                                else self.controller.submit_colour_frame
-                            )
-                            self._pending[device.id] = submit(
-                                device, target.rgb, target.brightness
-                            )
+                            if use_turbo:
+                                self._pending[device.id] = self.controller.submit_music_frame(
+                                    device, target.rgb, target.brightness
+                                )
+                            else:
+                                self._pending[device.id] = self.controller.submit_colour_frame(
+                                    device,
+                                    target.rgb,
+                                    target.brightness,
+                                    white=target.mode == "white",
+                                    colortemp=target.colortemp,
+                                )
                             self._pending_turbo[device.id] = use_turbo
                             self._frame_count += 1
                             if self._frame_count % 100 == 0:
                                 LOGGER.info(
-                                    "Screen Sync: %d frame · %s #%02x%02x%02x · %d%%%s",
+                                    "Screen Sync: %d frame · %s #%02x%02x%02x · %d%%%s%s",
                                     self._frame_count,
                                     device.name,
                                     *target.rgb,
                                     target.brightness,
                                     " · turbo" if use_turbo else "",
+                                    " · white" if target.mode == "white" else "",
                                 )
                         except Exception:
                             LOGGER.exception("Screen Sync: impossibile accodare il frame.")

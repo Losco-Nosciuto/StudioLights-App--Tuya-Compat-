@@ -36,7 +36,7 @@ Studio Lights risolve questo con:
 - **Screen Sync**: le luci seguono il monitor del gioco, con 1–8 sensori 16:9
   trascinabili e ridimensionabili (o fasce automatiche 3/5/7), 1/4/9 punti di
   campionamento per zona, 5–60 fps, preset **Bassa latenza**, smoothing, saturazione,
-  limiti di luminosità e turbo music sperimentale.
+  limiti di luminosità, bianco dedicato per i colori neutri e turbo music sperimentale.
 - **Scene Studio** salvabili/richiamabili con un clic, con tipo *Globale*, *Snapshot* o
   *Flow*. Sovrascrittura ed eliminazione dal menu `⋯` della card.
 - Import automatico di `devices.json` (wizard tinytuya) e import manuale dalle impostazioni.
@@ -194,6 +194,9 @@ Scorciatoie: `F5` aggiorna lo stato, `Ctrl+N` crea una scena.
    - **FPS** 5/8/10/15/30/60: frequenza richiesta all'analisi e all'invio;
    - **Inseguimento** (0.1–3 s), saturazione, luminosità minima/massima;
    - **Escludi HUD/barre** (solo fasce automatiche) e **Mantieni colore su schermo nero**;
+   - **Bianco dedicato per colori neutri**: i bianchi e i grigi passano ai LED bianchi
+     con temperatura calda/fredda dedotta dalla tinta, evitando il bianco bluastro
+     tipico della sintesi RGB;
    - **Turbo music** (sperimentale): usa il DP28 `control_data` senza ACK per frame,
      con fallback automatico al frame normale se il firmware lo rifiuta.
 6. Nella mappa **LUCI → ZONE**, assegna ogni lampadina a un sensore o a **Globale**.
@@ -204,6 +207,12 @@ schermo 1440p la cattura costa ~28 ms, quindi il tetto pratico è ~30 fps anche
 impostando 60. I 60 fps richiederebbero un backend DXGI/Windows Graphics Capture.
 Le zone libere non accelerano la cattura (una sola cattura intera, poi crop
 nell'analisi): servono a scegliere meglio cosa campionare ed escludere HUD.
+
+Sui colori: la saturazione usa una curva morbida che rinforza di più i toni chiari e
+pastello. Oltre ~85% di luminosità molti bulbi mescolano i LED bianchi e sbiadiscono i
+colori pieni: per verdi/blu/rossi intensi conviene tenere la luminosità massima più
+bassa. I colori quasi neutri non vengono inviati in RGB (dove una traccia di blu
+diventa un cast bluastro) ma in modalità bianco.
 
 Per i giochi: **borderless windowed**, HDR disattivato. In fullscreen exclusive alcuni
 giochi danno frame neri; in quel caso l'app lo segnala e non invia nero alle luci.
@@ -325,7 +334,7 @@ studiolights/
   ui/colorpicker.py          picker HSV con Pillow
   ui/dialogs.py              impostazioni, editor luce, scene, palette, conferme
 tests/test_core.py           19 test senza hardware
-tests/test_screen_sync.py    10 test Screen Sync senza monitor/Tuya
+tests/test_screen_sync.py    13 test Screen Sync senza monitor/Tuya
 tools/make_icon.py           rigenera l'icona
 ```
 
@@ -338,10 +347,10 @@ tools/make_icon.py           rigenera l'icona
 I test coprono modelli, validazione, persistenza, import wizard, seed scene, payload DPS
 atomici, classificazione errori, matching IP, interpolazione colori, motore Flow
 (invio frame, stop, sfasamento) e Screen Sync (config, sensori liberi, fasce, HUD,
-letterbox, smoothing, runner con capture finta, turbo con fallback). Non richiedono
-lampadine reali.
+letterbox, smoothing, bianco dedicato, saturazione, runner con capture finta, turbo
+con fallback). Non richiedono lampadine reali.
 
-Totale attuale: **29 test** (19 core + 10 Screen Sync).
+Totale attuale: **32 test** (19 core + 13 Screen Sync).
 
 ## Troubleshooting
 
@@ -360,6 +369,8 @@ Totale attuale: **29 test** (19 core + 10 Screen Sync).
 | Screen Sync non arriva a 60 fps | atteso con `mss`: la cattura 1440p costa ~28 ms, quindi il tetto reale è ~30 fps. L'anteprima mostra gli fps reali; per 60 servirebbe DXGI/WGC. |
 | Turbo music non cambia nulla | il firmware non espone DP28 o rifiuta `control_data`: il runner torna da solo al frame normale e lo scrive nel log. |
 | Screen Sync: colori piatti | alza la saturazione o usa il preset Neon; il firmware può limitare la fedeltà colore. |
+| Screen Sync: bianco che tende al blu/viola | attiva **Bianco dedicato per colori neutri**: i bianchi passano ai LED bianchi invece che all'RGB sintetizzato. Se resta blu, verifica che la luce riceva davvero i comandi (Local Key valida). |
+| Screen Sync: colori chiari sbiaditi | abbassa la **luminosità massima** a ~75–85%: sopra quella soglia il bulbo mescola i LED bianchi e desatura i colori. |
 | Temperatura invertita | alcuni modelli mappano 0 = freddo. È documentato come limite noto. |
 | La GUI si blocca | non dovrebbe: i comandi sono in thread. Controlla `logs/studiolights.log`. |
 | La scansione non trova nulla | UDP broadcast bloccato dal firewall o rete guest/client isolation. |
