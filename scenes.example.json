@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-11-06T09:26:28+00:00",
+  "updated_at": "2026-11-06T10:29:17+00:00",
   "scenes": [
     {
       "id": "scn_lavoro_neutro",
       "name": "Lavoro Neutro",
       "type": "global",
       "demo": false,
-      "created_at": "2026-11-06T09:26:28+00:00",
-      "updated_at": "2026-11-06T09:26:28+00:00",
+      "created_at": "2026-11-06T10:29:17+00:00",
+      "updated_at": "2026-11-06T10:29:17+00:00",
       "state": {
         "power": true,
         "mode": "white",
@@ -28,8 +28,8 @@
       "name": "Relax Caldo",
       "type": "global",
       "demo": false,
-      "created_at": "2026-11-06T09:26:28+00:00",
-      "updated_at": "2026-11-06T09:26:28+00:00",
+      "created_at": "2026-11-06T10:29:17+00:00",
+      "updated_at": "2026-11-06T10:29:17+00:00",
       "state": {
         "power": true,
         "mode": "white",
@@ -49,8 +49,8 @@
       "name": "Cyberpunk Dual-Tone",
       "type": "snapshot",
       "demo": true,
-      "created_at": "2026-11-06T09:26:28+00:00",
-      "updated_at": "2026-11-06T09:26:28+00:00",
+      "created_at": "2026-11-06T10:29:17+00:00",
+      "updated_at": "2026-11-06T10:29:17+00:00",
       "state": {
         "power": true,
         "mode": "colour",
@@ -111,8 +111,8 @@
       "name": "Full Red",
       "type": "global",
       "demo": false,
-      "created_at": "2026-11-06T09:26:28+00:00",
-      "updated_at": "2026-11-06T09:26:28+00:00",
+      "created_at": "2026-11-06T10:29:17+00:00",
+      "updated_at": "2026-11-06T10:29:17+00:00",
       "state": {
         "power": true,
         "mode": "colour",
@@ -132,8 +132,8 @@
       "name": "Deep Purple",
       "type": "global",
       "demo": false,
-      "created_at": "2026-11-06T09:26:28+00:00",
-      "updated_at": "2026-11-06T09:26:28+00:00",
+      "created_at": "2026-11-06T10:29:17+00:00",
+      "updated_at": "2026-11-06T10:29:17+00:00",
       "state": {
         "power": true,
         "mode": "colour",
@@ -153,8 +153,8 @@
       "name": "Cinema Soft",
       "type": "snapshot",
       "demo": true,
-      "created_at": "2026-11-06T09:26:28+00:00",
-      "updated_at": "2026-11-06T09:26:28+00:00",
+      "created_at": "2026-11-06T10:29:17+00:00",
+      "updated_at": "2026-11-06T10:29:17+00:00",
       "state": {
         "power": true,
         "mode": "colour",
