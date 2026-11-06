@@ -258,7 +258,7 @@ class FlowConfig:
                 normalized.append(fallback)
         self.palette = normalized
         self.segment_seconds = round(clamp_float(self.segment_seconds, 0.5, 10.0, 2.5), 2)
-        self.fps = clamp_int(self.fps, 2, 20, 10)
+        self.fps = clamp_int(self.fps, 2, 30, 10)
         self.brightness = clamp_int(self.brightness, 1, 100, 80)
         self.phase_offset = bool(self.phase_offset)
 

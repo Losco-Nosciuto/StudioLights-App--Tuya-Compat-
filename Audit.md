@@ -119,7 +119,7 @@ Tuya non espone un comando "fade tra N secondi". Il Flow quindi:
   colori diversi simultanei sulle luci dello studio;
 - si ferma con l'evento di stop, con il pulsante nella barra di stato o quando si applica
   un comando manuale; l'ultima tinta viene mantenuta e salvata nello stato noto;
-- è disponibile a 3/6/10/15 fps (default 10) e 0.5–5 s per transizione (default 2.5 s).
+- è disponibile a 3/6/10/15/30 fps (default 10) e 0.5–5 s per transizione (default 2.5 s).
 
 Il costo è traffico TCP proporzionale a `luci × fps`. Con 3 luci a 10 fps sono ~30
 comandi/s, gestibili con socket persistenti; non è pensato per 20+ luci a 15 fps su Wi-Fi
@@ -283,7 +283,7 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 | Mapping DP diverso da A/B standard | comandi errati o rifiutati | media | fallback su DP osservati, "Test connessione", log |
 | Direzione temperatura invertita | caldo/freddo scambiati | media | documentato; toggle per-device in roadmap |
 | Scena hardware non supportata | errore firmware | alta | messaggio chiaro, indice/payload modificabili |
-| Firmware lento/throttling durante Flow | fade a scatti | media | fps 3/6/10/15, durata regolabile, un frame in volo |
+| Firmware lento/throttling durante Flow | fade a scatti | media | fps 3/6/10/15/30, durata regolabile, un frame in volo |
 | Wi-Fi debole (-85 dBm) | timeout e frame persi | media | avvicinare AP, abbassare fps, health/stop |
 | Socket persistente stale dopo sleep/router | primo comando fallito | media | retry manuale, drop socket e ricreazione |
 | Local key in chiaro su disco | accesso locale alle luci | insita nel protocollo | `.gitignore`, esempi sicuri, avviso in UI/README |
@@ -348,7 +348,7 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 
 ### 1.1.0 — 2026-11-06
 
-- **Flow**: fade infinito tra 8 colori, 0.5–5 s per transizione, 3/6/10/15 fps, palette
+- **Flow**: fade infinito tra 8 colori, 0.5–5 s per transizione, 3/6/10/15/30 fps, palette
   modificabile, preset, sfasamento tra luci, STOP globale e scene Flow salvabili.
 - Fix di sicurezza: file runtime con Local Key rimossi dal tracking Git, esempi sicuri.
 - 18 test unitari (incluso il motore Flow); smoke test GUI del Flow con controller fake.

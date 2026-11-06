@@ -31,7 +31,7 @@ Studio Lights risolve questo con:
   - **Bianco**: luminosità 1–100% e temperatura colore caldo→freddo 0–100%.
   - **Colore**: color picker HSV visuale, preset rapidi, luminosità.
   - **Scene HW**: invio delle scene native del firmware Tuya (indice + payload opzionale).
-  - **Flow**: fade infinito tra 8 colori, 0.5–5 s per transizione, 3/6/10/15 fps,
+  - **Flow**: fade infinito tra 8 colori, 0.5–5 s per transizione, 3/6/10/15/30 fps,
     sfasamento tra le luci e stop immediato.
 - **Scene Studio** salvabili/richiamabili con un clic, con tipo *Globale*, *Snapshot* o
   *Flow*. Sovrascrittura ed eliminazione dal menu `⋯` della card.
@@ -155,7 +155,7 @@ tramite il Device ID. Non serve rifare il wizard.
 1. Seleziona le luci, apri il tab **Flow**.
 2. Clicca uno degli 8 campioni per cambiarlo, oppure carica un preset
    **Cyberpunk / Tramonto / Foresta / Neon**.
-3. Imposta **Velocità** (0.5–5 s per transizione), **FPS** (3/6/10/15) e **Sfasamento luci**.
+3. Imposta **Velocità** (0.5–5 s per transizione), **FPS** (3/6/10/15/30) e **Sfasamento luci**.
 4. Premi **AVVIA FLOW**. Il fade continua finché non premi **■ STOP FLOW** in basso a
    destra o applichi un altro comando.
 5. **Salva scena Flow** per ritrovare palette e velocità nella griglia scene.

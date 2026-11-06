@@ -125,7 +125,7 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(config.palette[2], DEFAULT_FLOW_PALETTE[2])
         self.assertEqual(len(config.palette), 8)
         self.assertEqual(config.segment_seconds, 0.5)
-        self.assertEqual(config.fps, 20)
+        self.assertEqual(config.fps, 30)
         self.assertEqual(config.brightness, 1)
         self.assertEqual(config.colour_at(0), (255, 0, 0))
         self.assertEqual(config.colour_at(1), (0, 255, 0))
