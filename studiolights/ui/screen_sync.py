@@ -817,11 +817,14 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             card, 5, "LUMINOSITÀ MASSIMA", 20, 100, 80, "80%"
         )
         self.min_slider, self.min_label = self._slider_row(
-            card, 6, "LUMINOSITÀ MINIMA", 0, 40, 8, "8%"
+            card, 6, "LUMINOSITÀ MINIMA", 0, 40, 8, "10%"
+        )
+        self.gamma_slider, self.gamma_label = self._slider_row(
+            card, 7, "CURVA BUIO (più alta = scuri più cupi)", 0.6, 1.8, 12, "1.15"
         )
 
         toggles = ctk.CTkFrame(card, fg_color="transparent")
-        toggles.grid(row=7, column=0, sticky="ew", padx=14, pady=(4, 2))
+        toggles.grid(row=8, column=0, sticky="ew", padx=14, pady=(4, 2))
         self.hud_var = tk.BooleanVar(value=True)
         ctk.CTkSwitch(
             toggles,
@@ -854,7 +857,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         ).pack(side="left", padx=(24, 0))
 
         toggles2 = ctk.CTkFrame(card, fg_color="transparent")
-        toggles2.grid(row=8, column=0, sticky="ew", padx=14, pady=(2, 4))
+        toggles2.grid(row=9, column=0, sticky="ew", padx=14, pady=(2, 4))
         self.neutral_white_var = tk.BooleanVar(value=True)
         ctk.CTkSwitch(
             toggles2,
@@ -897,7 +900,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             anchor="w",
             justify="left",
             wraplength=760,
-        ).grid(row=9, column=0, sticky="w", padx=14, pady=(0, 10))
+        ).grid(row=10, column=0, sticky="w", padx=14, pady=(0, 10))
 
     def _slider_row(
         self,
@@ -980,6 +983,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         self.saturation_slider.set(self._config.saturation)
         self.max_slider.set(self._config.brightness_max)
         self.min_slider.set(self._config.brightness_min)
+        self.gamma_slider.set(self._config.brightness_gamma)
         self.hud_var.set(self._config.ignore_hud)
         self.black_var.set(self._config.hold_on_black)
         self.turbo_var.set(self._config.turbo)
@@ -994,6 +998,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         self.saturation_label.configure(text=f"{self.saturation_slider.get():.2f}×")
         self.max_label.configure(text=f"{int(round(self.max_slider.get()))}%")
         self.min_label.configure(text=f"{int(round(self.min_slider.get()))}%")
+        self.gamma_label.configure(text=f"{self.gamma_slider.get():.2f}")
 
     def _collect_zone_map(self) -> dict[str, int]:
         zone_map: dict[str, int] = {}
@@ -1029,6 +1034,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             saturation=float(self.saturation_slider.get()),
             brightness_min=int(round(self.min_slider.get())),
             brightness_max=int(round(self.max_slider.get())),
+            brightness_gamma=float(self.gamma_slider.get()),
             fps=int(self.fps_menu.get()),
             turbo=bool(self.turbo_var.get()),
             neutral_white=bool(self.neutral_white_var.get()),

@@ -178,6 +178,7 @@ class ScreenSyncConfig:
     saturation: float = 1.25
     brightness_min: int = 10
     brightness_max: int = 80
+    brightness_gamma: float = 1.15
     fps: int = 8
     turbo: bool = False
     neutral_white: bool = True
@@ -208,6 +209,9 @@ class ScreenSyncConfig:
         self.brightness_max = clamp_int(self.brightness_max, 20, 100, 80)
         if self.brightness_max < self.brightness_min:
             self.brightness_max = self.brightness_min
+        self.brightness_gamma = round(
+            clamp_float(self.brightness_gamma, 0.5, 2.0, 1.15), 2
+        )
         self.fps = clamp_int(self.fps, 3, 60, 8)
         self.turbo = bool(self.turbo)
         self.neutral_white = bool(self.neutral_white)
@@ -253,6 +257,7 @@ class ScreenSyncConfig:
             "saturation": self.saturation,
             "brightness_min": self.brightness_min,
             "brightness_max": self.brightness_max,
+            "brightness_gamma": self.brightness_gamma,
             "fps": self.fps,
             "turbo": self.turbo,
             "neutral_white": self.neutral_white,
@@ -282,6 +287,7 @@ class ScreenSyncConfig:
             saturation=data.get("saturation", 1.25),
             brightness_min=data.get("brightness_min", 10),
             brightness_max=data.get("brightness_max", 80),
+            brightness_gamma=data.get("brightness_gamma", 1.15),
             fps=data.get("fps", 8),
             turbo=data.get("turbo", False),
             neutral_white=data.get("neutral_white", True),
@@ -522,7 +528,15 @@ class ScreenAnalyzer:
         red, green, blue = (max(0.0, min(255.0, channel)) for channel in state.rgb)
         hue, saturation, _value = colorsys.rgb_to_hsv(red / 255, green / 255, blue / 255)
         span = max(0, config.brightness_max - config.brightness_min)
-        brightness = config.brightness_min + int(round(span * (max(0.0, state.luma) ** 0.75)))
+        # Perceptual curve with a dark toe: a nearly black desktop must drive the
+        # bulbs to (almost) zero instead of the old luma^0.75 shadow boost.
+        luma = max(0.0, min(1.0, state.luma))
+        toe = 0.02
+        if luma <= toe:
+            level = 0.0
+        else:
+            level = pow((luma - toe) / (1.0 - toe), config.brightness_gamma)
+        brightness = config.brightness_min + int(round(span * level))
         brightness = max(config.brightness_min, min(config.brightness_max, brightness))
 
         if config.neutral_white and saturation <= config.neutral_threshold:

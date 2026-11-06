@@ -28,6 +28,7 @@
   "saturation": 1.25,
   "brightness_min": 10,
   "brightness_max": 80,
+  "brightness_gamma": 1.15,
   "fps": 8,
   "turbo": false,
   "neutral_white": true,

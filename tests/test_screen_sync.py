@@ -148,6 +148,21 @@ class ScreenAnalyzerTests(unittest.TestCase):
         self.assertTrue(frame.black)
         self.assertTrue(frame.warning)
 
+    def test_dark_screen_goes_almost_to_zero(self) -> None:
+        config = ScreenSyncConfig(
+            sampling_mode="zones",
+            sensor_zones=[SensorZone(x=0.0, y=0.0, w=1.0, h=1.0)],
+            sample_grid=1,
+            smoothing=0.3,
+            brightness_min=0,
+            brightness_max=100,
+            brightness_gamma=1.15,
+        )
+        image = Image.new("RGB", (96, 54), (10, 10, 12))
+        target = ScreenAnalyzer().update(image, config, 1.0).zones[0]
+        self.assertLessEqual(target.brightness, 3)
+        self.assertFalse(ScreenAnalyzer().update(image, config, 1.0).black)
+
     def test_near_neutral_uses_white_mode(self) -> None:
         config = ScreenSyncConfig(
             sampling_mode="zones",
