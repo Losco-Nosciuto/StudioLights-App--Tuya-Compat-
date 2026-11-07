@@ -1,4 +1,4 @@
-# Audit tecnico — Studio Lights 1.2.8
+# Audit tecnico — Studio Lights 1.3.0
 
 **Data:** 7 novembre 2026
 **Ambiente di sviluppo:** Windows 11, Python 3.12.10, Tk 8.6
@@ -49,7 +49,7 @@ sincronizzazione tra PC, scenari fuori dalla LAN, supporto a prese/termostati.
 | Snapshot multi-luce | `Scene(type="snapshot")` + `lights` | test GUI + persistenza |
 | Flow 8 colori, fade infinito, 0.5–5 s | `flow.py`, `FlowRunner`, tab Flow | 2 test motore + test GUI start/stop |
 | Scena Flow salvabile | `Scene(type="flow")` + `FlowConfig` | round-trip + GUI |
-| Screen Sync: sensori 16:9, fps, colore | `screen_sync.py`, `ui/screen_sync.py` | 18 test unitari + GUI live |
+| Screen Sync: sensori 16:9, fps, colore | `screen_sync.py`, `ui/screen_sync.py` | 20 test unitari + GUI live |
 | Cattura monitor con mss | `ScreenCapture`, `list_monitors` | cattura reale desktop, 42 frame |
 | Elimina / sovrascrivi scena | menu card + `delete_scene` / `overwrite_scene` | codice + dialogo conferma |
 | Timeout 1.5 s, retry 1 | `LightController.__init__`, `_get_bulb` | ispezione + test offline (~1.5 s) |
@@ -303,18 +303,18 @@ Per questo il progetto converte esplicitamente le percentuali.
 
 ```
 python -m compileall studiolights main.py tests      → OK
-python -m unittest discover -s tests -v               → 36 test, OK
+python -m unittest discover -s tests -v               → 39 test, OK
 ruff check . --exclude .venv --select F,E9            → OK
 ```
 
-I 36 test coprono: normalizzazione versioni, clamp/serializzazione stato, validazione
+I 39 test coprono: normalizzazione versioni, clamp/serializzazione stato, validazione
 device, conversioni Kelvin, round-trip scene global/snapshot/flow, FlowConfig e
 interpolazione colori, import wizard (lista e dict), creazione template, persistenza luci
 e scene, payload atomico colore/bianco/off, decodifica stato, classificazione errori,
-matching IP, motore Flow e Screen Sync (config, sensori liberi, fasce, HUD/letterbox,
-smoothing, bianco dedicato, saturazione, curva buio, testo su sfondo scuro, scene
-luminose con bordi scuri, spegnimento su nero e riaccensione, runner con capture finta,
-turbo con fallback).
+matching IP, motore Flow e Screen Sync (config, profilo default, preset store, sensori
+liberi, fasce, HUD/letterbox, smoothing, bianco dedicato, saturazione, curva buio, testo
+su sfondo scuro, scene luminose con bordi scuri, spegnimento su nero e riaccensione,
+runner con capture finta, turbo con fallback).
 
 ### GUI
 
@@ -428,6 +428,22 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 ---
 
 ## 12. Changelog
+
+### 1.3.0 — 2026-11-07
+
+- **Mappa luci sotto l’anteprima**: ogni zona ha un pulsante con le luci assegnate;
+  il menu permette di spuntare più lampadine o passare a **Globale**. Rimossa la card
+  separata.
+- **Preset in alto**: menu `Default / preset` + **+ Preset** accanto a Salva; rimossi i
+  pulsanti preset da Analisi e Reazione. I preset utente sono in
+  `screen_sync_presets.json` (runtime) e non includono monitor/mappa luci.
+- **Profilo Default shippato**: i default di `ScreenSyncConfig` e
+  `screen_sync.example.json` sono il profilo tuning attuale (3 fasce, 9 punti, 60 fps,
+  saturazione 1.8, max 80, curva 1.8, minimo 0, Nero = spento).
+- **Sensori più compatti**: anteprima 16:9 in una riga bassa, pulsanti spostati a fianco.
+- **Rotella**: slider e menu non cambiano più valore con la rotella; la rotella scorre
+  solo la pagina.
+- Test: **39** (20 Screen Sync), inclusi profilo default e preset store.
 
 ### 1.2.8 — 2026-11-07
 

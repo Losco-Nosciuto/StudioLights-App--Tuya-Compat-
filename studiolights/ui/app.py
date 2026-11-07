@@ -28,7 +28,7 @@ from ..models import (
     Scene,
     utc_now_iso,
 )
-from ..screen_sync import ScreenSyncRunner, ScreenSyncStore
+from ..screen_sync import ScreenPresetStore, ScreenSyncRunner, ScreenSyncStore
 from ..theme import COLORS, font, mono, setup_appearance
 from ..util import format_ms, hex_to_rgb, kelvin_from_temp, rgb_to_hex, temp_preview_hex
 from .colorpicker import ColorPicker
@@ -138,6 +138,7 @@ class StudioLightsApp(ctk.CTk):
         self.controller.sync_devices(self.devices)
 
         self.screen_store = ScreenSyncStore(self.root_dir)
+        self.screen_preset_store = ScreenPresetStore(self.root_dir)
         self.screen_config = self.screen_store.load()
         self.screen_config.assign_default_zones(self.devices)
         self.screen_runner = ScreenSyncRunner(self.controller)

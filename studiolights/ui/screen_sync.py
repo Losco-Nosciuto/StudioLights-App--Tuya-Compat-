@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import tkinter as tk
+from tkinter import simpledialog
 from typing import Any
 
 import customtkinter as ctk
@@ -32,9 +33,15 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         self.protocol("WM_DELETE_WINDOW", self.close)
         self._monitors: list[MonitorInfo] = list_monitors()
         self._monitor_by_label: dict[str, MonitorInfo] = {}
-        self._light_menus: dict[str, ctk.CTkOptionMenu] = {}
         self._preview_boxes: list[ctk.CTkFrame] = []
         self._preview_labels: list[ctk.CTkLabel] = []
+        self._zone_assignment_buttons: list[ctk.CTkButton] = []
+        self._zone_menu_vars: list[tk.BooleanVar] = []
+        self._preset_store = getattr(app, "screen_preset_store", None)
+        self._presets: dict[str, dict[str, Any]] = (
+            self._preset_store.load() if self._preset_store is not None else {}
+        )
+        self._preset_loading = False
         self._preview_job: str | None = None
         self._save_job: str | None = None
         self._running = False
@@ -46,7 +53,6 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         self._build()
         self._apply_config(self._config)
         self._refresh_monitors()
-        self._rebuild_light_map()
         self._update_preview()
         self.after(70, self._present)
 
@@ -72,6 +78,49 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             text_color=COLORS["muted"],
             anchor="w",
         ).grid(row=1, column=0, sticky="w", pady=(1, 0))
+        self.preset_menu = ctk.CTkOptionMenu(
+            header,
+            values=["Default"],
+            width=156,
+            height=30,
+            corner_radius=8,
+            fg_color=COLORS["panel_alt"],
+            button_color=COLORS["border"],
+            button_hover_color=COLORS["border_light"],
+            dropdown_fg_color=COLORS["panel_alt"],
+            dropdown_hover_color=COLORS["card_hover"],
+            text_color=COLORS["text"],
+            font=font(9),
+            anchor="w",
+            command=self._on_preset_selected,
+        )
+        self.preset_menu.grid(row=0, column=1, rowspan=2, sticky="e", padx=(0, 6))
+        ctk.CTkButton(
+            header,
+            text="+ Preset",
+            width=78,
+            height=30,
+            corner_radius=8,
+            fg_color="transparent",
+            border_width=1,
+            border_color=COLORS["border_light"],
+            hover_color=COLORS["card_hover"],
+            text_color=COLORS["muted"],
+            font=font(9, "bold"),
+            command=self._save_preset_dialog,
+        ).grid(row=0, column=2, rowspan=2, sticky="e", padx=(0, 8))
+        ctk.CTkButton(
+            header,
+            text="Salva",
+            width=82,
+            height=30,
+            corner_radius=8,
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            text_color=COLORS["accent_text"],
+            font=font(10, "bold"),
+            command=self._save_now,
+        ).grid(row=0, column=3, rowspan=2, sticky="e", padx=(0, 8))
         ctk.CTkButton(
             header,
             text="Chiudi",
@@ -85,19 +134,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             text_color=COLORS["muted"],
             font=font(10, "bold"),
             command=self.close,
-        ).grid(row=0, column=2, rowspan=2, sticky="e")
-        ctk.CTkButton(
-            header,
-            text="Salva",
-            width=82,
-            height=30,
-            corner_radius=8,
-            fg_color=COLORS["accent"],
-            hover_color=COLORS["accent_hover"],
-            text_color=COLORS["accent_text"],
-            font=font(10, "bold"),
-            command=self._save_now,
-        ).grid(row=0, column=1, rowspan=2, sticky="e", padx=(0, 8))
+        ).grid(row=0, column=4, rowspan=2, sticky="e")
 
         self.scroll = ctk.CTkScrollableFrame(
             self,
@@ -113,7 +150,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         self._build_zone_map_card()
         self._build_preview_card()
         self._build_settings_card()
-        self._build_light_map_card()
+        self._fix_mouse_wheel()
 
         footer = ctk.CTkFrame(self, fg_color="transparent")
         footer.grid(row=2, column=0, sticky="ew", padx=24, pady=(8, 18))
@@ -243,17 +280,39 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         )
         self.zone_caption.grid(row=0, column=1, sticky="e")
 
-        toolbar = ctk.CTkFrame(card, fg_color="transparent")
-        toolbar.grid(row=1, column=0, sticky="ew", padx=14, pady=(5, 4))
-        toolbar.grid_columnconfigure(4, weight=1)
+        body = ctk.CTkFrame(card, fg_color="transparent")
+        body.grid(row=1, column=0, sticky="ew", padx=14, pady=(5, 2))
+        body.grid_columnconfigure(0, weight=1)
+
+        self.zone_canvas = tk.Canvas(
+            body,
+            height=240,
+            bg=COLORS["panel_alt"],
+            highlightthickness=0,
+            bd=0,
+            cursor="crosshair",
+        )
+        self.zone_canvas.grid(row=0, column=0, sticky="ew")
+        self.zone_canvas.bind("<Configure>", self._on_zone_canvas_configure)
+        self.zone_canvas.bind("<ButtonPress-1>", self._on_zone_press)
+        self.zone_canvas.bind("<B1-Motion>", self._on_zone_drag)
+        self.zone_canvas.bind("<ButtonRelease-1>", self._on_zone_release)
+        self.zone_canvas.bind("<Double-Button-1>", self._on_zone_double_click)
+        self.zone_canvas.bind("<ButtonPress-3>", self._on_zone_right_click)
+        self.zone_canvas.bind("<Motion>", self._on_zone_hover)
+
+        side = ctk.CTkFrame(body, fg_color="transparent", width=158)
+        side.grid(row=0, column=1, sticky="n", padx=(10, 0))
+        side.grid_propagate(False)
         ctk.CTkLabel(
-            toolbar,
+            side,
             text="MODALITÀ",
             font=font(8, "bold"),
             text_color=COLORS["dim"],
+            anchor="w",
         ).grid(row=0, column=0, sticky="w")
         self.mode_menu = ctk.CTkOptionMenu(
-            toolbar,
+            side,
             values=["Sensori liberi", "Fasce automatiche"],
             width=150,
             height=27,
@@ -266,11 +325,11 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             font=font(9),
             command=lambda _value: self._on_sampling_mode_changed(),
         )
-        self.mode_menu.grid(row=0, column=1, padx=(6, 14))
+        self.mode_menu.grid(row=1, column=0, sticky="ew", pady=(3, 6))
         ctk.CTkButton(
-            toolbar,
+            side,
             text="+ Sensore",
-            width=86,
+            width=150,
             height=27,
             corner_radius=6,
             fg_color=COLORS["panel_alt"],
@@ -280,11 +339,11 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             text_color=COLORS["muted"],
             font=font(8, "bold"),
             command=self._add_sensor_zone,
-        ).grid(row=0, column=2, padx=(0, 5))
+        ).grid(row=2, column=0, sticky="ew", pady=(0, 5))
         ctk.CTkButton(
-            toolbar,
+            side,
             text="Rimuovi",
-            width=74,
+            width=150,
             height=27,
             corner_radius=6,
             fg_color=COLORS["panel_alt"],
@@ -294,11 +353,11 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             text_color=COLORS["muted"],
             font=font(8, "bold"),
             command=self._remove_sensor_zone,
-        ).grid(row=0, column=3, padx=(0, 5))
+        ).grid(row=3, column=0, sticky="ew", pady=(0, 5))
         ctk.CTkButton(
-            toolbar,
+            side,
             text="Rigenera fasce",
-            width=106,
+            width=150,
             height=27,
             corner_radius=6,
             fg_color="transparent",
@@ -308,39 +367,21 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             text_color=COLORS["dim"],
             font=font(8),
             command=self._regenerate_bands,
-        ).grid(row=0, column=4, sticky="e")
-
-        self.zone_canvas = tk.Canvas(
-            card,
-            height=300,
-            bg=COLORS["panel_alt"],
-            highlightthickness=0,
-            bd=0,
-            cursor="crosshair",
-        )
-        self.zone_canvas.grid(row=2, column=0, sticky="ew", padx=14, pady=(2, 4))
-        self.zone_canvas.bind("<Configure>", self._on_zone_canvas_configure)
-        self.zone_canvas.bind("<ButtonPress-1>", self._on_zone_press)
-        self.zone_canvas.bind("<B1-Motion>", self._on_zone_drag)
-        self.zone_canvas.bind("<ButtonRelease-1>", self._on_zone_release)
-        self.zone_canvas.bind("<Double-Button-1>", self._on_zone_double_click)
-        self.zone_canvas.bind("<ButtonPress-3>", self._on_zone_right_click)
-        self.zone_canvas.bind("<Motion>", self._on_zone_hover)
+        ).grid(row=4, column=0, sticky="ew")
 
         ctk.CTkLabel(
             card,
             text=(
-                "Trascina un sensore per spostarlo, usa il quadratino in basso a "
-                "destra per ridimensionarlo. Doppio clic sul vuoto aggiunge un "
-                "sensore, clic destro lo rimuove. La cattura resta una sola: le "
-                "zone scelgono solo cosa campionare."
+                "Trascina un sensore per spostarlo, quadratino in basso a destra "
+                "per ridimensionarlo. Doppio clic sul vuoto aggiunge, clic destro "
+                "rimuove. La cattura resta una sola."
             ),
             font=font(8),
             text_color=COLORS["dim"],
             anchor="w",
             justify="left",
             wraplength=760,
-        ).grid(row=3, column=0, sticky="w", padx=14, pady=(0, 10))
+        ).grid(row=2, column=0, sticky="w", padx=14, pady=(0, 9))
 
     # --------------------------------------------------------- zone geometry
     def _sampling_mode(self) -> str:
@@ -351,12 +392,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             return len(self._zones)
         return int(self.zones_menu.get()) if hasattr(self, "zones_menu") else 3
 
-    def _on_zone_canvas_configure(self, event: tk.Event) -> None:
-        target = int(min(480, max(180, event.width * 9 / 16)))
-        current = int(self.zone_canvas.cget("height"))
-        if abs(current - target) > 2:
-            self.zone_canvas.configure(height=target)
-            return
+    def _on_zone_canvas_configure(self, _event: tk.Event) -> None:
         self._rebuild_zone_map()
 
     def _zone_pixel_rect(self, zone: SensorZone) -> tuple[float, float, float, float]:
@@ -387,9 +423,16 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         canvas = self.zone_canvas
         canvas.delete("all")
         width = max(320, canvas.winfo_width() or 760)
-        height = max(180, int(canvas.cget("height")))
-        pad = 10
-        left, top, right, bottom = pad, pad, width - pad, height - pad
+        height = max(140, int(canvas.cget("height")))
+        pad = 8
+        avail_w = max(1, width - pad * 2)
+        avail_h = max(1, height - pad * 2)
+        content_w = min(avail_w, avail_h * 16 / 9)
+        content_h = content_w * 9 / 16
+        left = (width - content_w) / 2
+        top = (height - content_h) / 2
+        right = left + content_w
+        bottom = top + content_h
         self._zone_area = (left, top, right, bottom)
         canvas.create_rectangle(
             left,
@@ -479,11 +522,11 @@ class ScreenSyncWindow(ctk.CTkToplevel):
                 fill=COLORS["dim"],
                 font=font(7),
             )
-            names = []
-            for device in self.app.devices:
-                menu = self._light_menus.get(device.id)
-                if menu is not None and menu.get() == f"Zona {index + 1}":
-                    names.append(device.name)
+            names = [
+                device.name
+                for device in self.app.devices
+                if self._config.zone_map.get(device.id) == index
+            ]
             canvas.create_text(
                 x0 + 5,
                 y1 - 5,
@@ -593,7 +636,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             self.mode_menu.set("Sensori liberi")
         if len(self._zones) >= 8:
             return
-        self._config.zone_map = self._collect_zone_map()
+        self._config.zone_map = self._zone_map_snapshot()
         zone_w, zone_h = 0.26, 0.30
         zone = SensorZone(
             x=max(0.0, min(1.0 - zone_w, x - zone_w / 2)),
@@ -608,7 +651,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
     def _remove_sensor_zone(self) -> None:
         if self._sampling_mode() != "zones" or len(self._zones) <= 1:
             return
-        self._config.zone_map = self._collect_zone_map()
+        self._config.zone_map = self._zone_map_snapshot()
         index = self._selected_zone
         if index is None or not (0 <= index < len(self._zones)):
             index = len(self._zones) - 1
@@ -627,17 +670,16 @@ class ScreenSyncWindow(ctk.CTkToplevel):
 
     def _regenerate_bands(self) -> None:
         count = int(self.zones_menu.get()) if hasattr(self, "zones_menu") else 3
-        self._config.zone_map = self._collect_zone_map()
+        self._config.zone_map = self._zone_map_snapshot()
         self._zones = default_sensor_zones(count)
         self._selected_zone = 0
         self.mode_menu.set("Sensori liberi")
         self._after_zones_changed()
 
     def _on_sampling_mode_changed(self) -> None:
-        self._config.zone_map = self._collect_zone_map()
+        self._config.zone_map = self._zone_map_snapshot()
         self._config.sampling_mode = self._sampling_mode()
         self._sync_mode_widgets()
-        self._rebuild_light_map()
         self._rebuild_preview()
         self._schedule_save()
 
@@ -657,13 +699,8 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             if zone_index >= count:
                 remapped = zone_index % count if count > 1 else -1
                 self._config.zone_map[device_id] = remapped
-        self._rebuild_light_map()
         self._rebuild_preview()
         self._schedule_save()
-
-    def _on_light_map_changed(self) -> None:
-        self._schedule_save()
-        self._rebuild_zone_map()
 
     def _refresh_selection_footer(self) -> None:
         if self.app.screen_running:
@@ -710,7 +747,16 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         )
         self.preview_status.grid(row=0, column=1, sticky="e")
         self.preview_row = ctk.CTkFrame(card, fg_color="transparent")
-        self.preview_row.grid(row=1, column=0, sticky="ew", padx=14, pady=(6, 14))
+        self.preview_row.grid(row=1, column=0, sticky="ew", padx=14, pady=(6, 3))
+        self.preview_map_caption = ctk.CTkLabel(
+            card,
+            text="Clicca sotto una zona per assegnare le luci.",
+            font=font(8),
+            text_color=COLORS["dim"],
+            anchor="w",
+            justify="left",
+        )
+        self.preview_map_caption.grid(row=2, column=0, sticky="w", padx=14, pady=(0, 10))
 
     def _build_settings_card(self) -> None:
         card = self._card()
@@ -721,24 +767,6 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             text_color=COLORS["dim"],
             anchor="w",
         ).grid(row=0, column=0, sticky="w", padx=14, pady=(10, 0))
-
-        preset_row = ctk.CTkFrame(card, fg_color="transparent")
-        preset_row.grid(row=1, column=0, sticky="w", padx=14, pady=(5, 4))
-        for index, name in enumerate(SCREEN_PRESETS):
-            ctk.CTkButton(
-                preset_row,
-                text=name,
-                width=86,
-                height=25,
-                corner_radius=6,
-                fg_color=COLORS["panel_alt"],
-                border_width=1,
-                border_color=COLORS["border"],
-                hover_color=COLORS["card_hover"],
-                text_color=COLORS["muted"],
-                font=font(8),
-                command=lambda value=name: self._apply_preset(value),
-            ).grid(row=0, column=index, padx=(0, 5))
 
         options = ctk.CTkFrame(card, fg_color="transparent")
         options.grid(row=2, column=0, sticky="ew", padx=14, pady=(4, 6))
@@ -970,32 +998,53 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         slider.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(1, 0))
         return slider, label_widget
 
-    def _build_light_map_card(self) -> None:
-        card = self._card()
-        head = ctk.CTkFrame(card, fg_color="transparent")
-        head.grid(row=0, column=0, sticky="ew", padx=14, pady=(10, 2))
-        head.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(
-            head,
-            text="MAPPA LUCI → ZONE",
-            font=font(9, "bold"),
-            text_color=COLORS["dim"],
-            anchor="w",
-        ).grid(row=0, column=0, sticky="w")
-        ctk.CTkLabel(
-            head,
-            text="Globale = media schermo intero",
-            font=font(8),
-            text_color=COLORS["dim"],
-            anchor="e",
-        ).grid(row=0, column=1, sticky="e")
-        self.light_map_frame = ctk.CTkFrame(card, fg_color="transparent")
-        self.light_map_frame.grid(row=1, column=0, sticky="ew", padx=14, pady=(4, 10))
-        self.light_map_frame.grid_columnconfigure(0, weight=1)
+    # ------------------------------------------------------------- mouse wheel
+    def _walk_widgets(self, widget: tk.Misc):
+        yield widget
+        for child in widget.winfo_children():
+            yield from self._walk_widgets(child)
+
+    def _scroll_page(self, event: tk.Event) -> str:
+        canvas = getattr(self.scroll, "_parent_canvas", None)
+        if canvas is None:
+            return "break"
+        if getattr(event, "num", None) == 4:
+            delta = -1
+        elif getattr(event, "num", None) == 5:
+            delta = 1
+        else:
+            delta = -1 if event.delta > 0 else 1
+        canvas.yview_scroll(delta, "units")
+        return "break"
+
+    def _fix_mouse_wheel(self) -> None:
+        """Keep the wheel for scrolling the page, never for changing sliders."""
+        scrollers = (ctk.CTkSlider, ctk.CTkOptionMenu)
+        roots = [self.scroll]
+        if hasattr(self, "preset_menu"):
+            roots.append(self.preset_menu)
+        for root in roots:
+            for widget in self._walk_widgets(root):
+                if not isinstance(widget, scrollers):
+                    continue
+                for target in self._walk_widgets(widget):
+                    for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                        try:
+                            target.unbind(sequence)
+                        except tk.TclError:
+                            pass
+                        target.bind(sequence, self._scroll_page)
+        for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            try:
+                self.scroll.unbind(sequence)
+            except tk.TclError:
+                pass
+            self.scroll.bind(sequence, self._scroll_page)
 
     # ------------------------------------------------------------------ state
     def _apply_config(self, config: ScreenSyncConfig) -> None:
         self._config = config.copy()
+        self._config.assign_default_zones(self.app.devices)
         self._zones = [zone.copy() for zone in self._config.sensor_zones]
         self._selected_zone = 0 if self._zones else None
         self.mode_menu.set(
@@ -1016,6 +1065,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         self.dark_off_var.set(self._config.dark_off)
         self._update_slider_labels()
         self._sync_mode_widgets()
+        self._refresh_preset_menu()
         self._rebuild_zone_map()
         self._rebuild_preview()
 
@@ -1026,27 +1076,19 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         self.min_label.configure(text=f"{int(round(self.min_slider.get()))}%")
         self.gamma_label.configure(text=f"{self.gamma_slider.get():.2f}")
 
-    def _collect_zone_map(self) -> dict[str, int]:
+    def _zone_map_snapshot(self) -> dict[str, int]:
+        count = max(1, self._zone_count())
         zone_map: dict[str, int] = {}
-        for device in self.app.devices:
-            menu = self._light_menus.get(device.id)
-            if menu is None:
-                if device.id in self._config.zone_map:
-                    zone_map[device.id] = self._config.zone_map[device.id]
-                continue
-            value = menu.get()
-            if value == "Globale":
-                zone_map[device.id] = -1
-            else:
-                try:
-                    zone_map[device.id] = int(value.split()[-1]) - 1
-                except (ValueError, IndexError):
-                    zone_map[device.id] = -1
+        for index, device in enumerate(self.app.devices):
+            zone = self._config.zone_map.get(device.id)
+            if zone is None:
+                zone = index % count if count > 1 else -1
+            zone_map[device.id] = zone
         return zone_map
 
     def _read_config(self) -> ScreenSyncConfig:
         monitor = self._monitor_by_label.get(self.monitor_menu.get())
-        zone_map = self._collect_zone_map()
+        zone_map = self._zone_map_snapshot()
         return ScreenSyncConfig(
             monitor_index=monitor.index if monitor else self._config.monitor_index,
             monitor_label=monitor.label if monitor else self._config.monitor_label,
@@ -1097,28 +1139,90 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         except Exception:
             LOGGER.exception("Salvataggio screen_sync.json fallito")
 
-    def _apply_preset(self, name: str) -> None:
-        preset = SCREEN_PRESETS.get(name)
-        if not preset:
+    def _preset_names(self) -> list[str]:
+        names = ["Default", *sorted(self._presets)]
+        for name in SCREEN_PRESETS:
+            if name not in names:
+                names.append(name)
+        return names
+
+    def _refresh_preset_menu(self) -> None:
+        if not hasattr(self, "preset_menu"):
             return
-        self._config.preset = name
-        if "smoothing" in preset:
-            self.smooth_slider.set(preset["smoothing"])
-        if "saturation" in preset:
-            self.saturation_slider.set(preset["saturation"])
-        if "brightness_max" in preset:
-            self.max_slider.set(preset["brightness_max"])
-        if "fps" in preset:
-            self.fps_menu.set(str(int(preset["fps"])))
-        if "turbo" in preset:
-            self.turbo_var.set(bool(preset["turbo"]))
-        self._update_slider_labels()
+        values = self._preset_names()
+        self.preset_menu.configure(values=values)
+        if self._config.preset not in values:
+            self._config.preset = "Default"
+        self.preset_menu.set(self._config.preset)
+
+    def _on_preset_selected(self, name: str) -> None:
+        if self._preset_loading:
+            return
+        base = self._read_config()
+        if name == "Default":
+            data = ScreenSyncConfig().to_dict()
+        elif name in self._presets:
+            data = self._presets[name]
+        elif name in SCREEN_PRESETS:
+            data = SCREEN_PRESETS[name]
+        else:
+            return
+        merged = base.to_dict()
+        for key, value in data.items():
+            if key in ("monitor_index", "monitor_label", "zone_map"):
+                continue
+            merged[key] = value
+        merged["preset"] = name
+        self._preset_loading = True
+        try:
+            self._apply_config(ScreenSyncConfig.from_dict(merged))
+            self._config.preset = name
+        finally:
+            self._preset_loading = False
         self._schedule_save()
+        self.footer_status.configure(
+            text=f"Preset «{name}» applicato.",
+            text_color=COLORS["muted"],
+        )
+
+    def _save_preset_dialog(self) -> None:
+        name = simpledialog.askstring("Salva preset", "Nome del preset:", parent=self)
+        if not name:
+            return
+        name = name.strip()
+        if not name:
+            return
+        if name == "Default":
+            self.footer_status.configure(
+                text="«Default» è riservato: scegli un altro nome.",
+                text_color=COLORS["warning"],
+            )
+            return
+        data = self._read_config().to_dict()
+        for key in ("monitor_index", "monitor_label", "zone_map", "preset"):
+            data.pop(key, None)
+        self._presets[name] = data
+        if self._preset_store is not None:
+            try:
+                self._preset_store.save(self._presets)
+            except Exception:
+                LOGGER.exception("Salvataggio preset Screen Sync fallito")
+                self.footer_status.configure(
+                    text="Preset non salvato: errore di scrittura.",
+                    text_color=COLORS["danger"],
+                )
+                return
+        self._config.preset = name
+        self._refresh_preset_menu()
+        self._save_now()
+        self.footer_status.configure(
+            text=f"Preset «{name}» salvato.",
+            text_color=COLORS["success"],
+        )
 
     def _on_zones_changed(self) -> None:
         self._config.zones = int(self.zones_menu.get())
         if self._sampling_mode() == "bands":
-            self._rebuild_light_map()
             self._rebuild_preview()
         self._rebuild_zone_map()
         self._schedule_save()
@@ -1142,17 +1246,20 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             child.destroy()
         self._preview_boxes = []
         self._preview_labels = []
-        zones = self._zone_count()
+        self._zone_assignment_buttons = []
+        zones = max(1, self._zone_count())
         for index in range(zones):
+            column = ctk.CTkFrame(self.preview_row, fg_color="transparent")
+            column.grid(row=0, column=index, sticky="ew", padx=(0, 5))
+            self.preview_row.grid_columnconfigure(index, weight=1)
             box = ctk.CTkFrame(
-                self.preview_row,
+                column,
                 height=42,
                 corner_radius=8,
                 fg_color=COLORS["panel_alt"],
             )
-            box.grid(row=0, column=index, sticky="ew", padx=(0, 5))
-            self.preview_row.grid_columnconfigure(index, weight=1)
-            box.grid_propagate(False)
+            box.pack(fill="x")
+            box.pack_propagate(False)
             label = ctk.CTkLabel(
                 box,
                 text=f"Z{index + 1}",
@@ -1160,60 +1267,125 @@ class ScreenSyncWindow(ctk.CTkToplevel):
                 text_color=COLORS["text"],
             )
             label.place(relx=0.5, rely=0.5, anchor="center")
+            button = ctk.CTkButton(
+                column,
+                text="Nessuna luce",
+                height=25,
+                corner_radius=6,
+                fg_color=COLORS["panel_alt"],
+                border_width=1,
+                border_color=COLORS["border"],
+                hover_color=COLORS["card_hover"],
+                text_color=COLORS["muted"],
+                font=font(8),
+                anchor="w",
+                command=lambda value=index: self._open_zone_menu(value),
+            )
+            button.pack(fill="x", pady=(3, 0))
             self._preview_boxes.append(box)
             self._preview_labels.append(label)
-
-    def _rebuild_light_map(self) -> None:
-        for child in self.light_map_frame.winfo_children():
-            child.destroy()
-        self._light_menus = {}
-        zones = self._zone_count()
-        values = ["Globale"] + [f"Zona {index + 1}" for index in range(zones)]
-        for row_index, device in enumerate(self.app.devices):
-            row = ctk.CTkFrame(self.light_map_frame, fg_color="transparent")
-            row.grid(row=row_index, column=0, sticky="ew", pady=2)
-            row.grid_columnconfigure(0, weight=1)
-            ctk.CTkLabel(
-                row,
-                text=device.name,
-                font=font(9, "bold"),
-                text_color=COLORS["text"],
-                anchor="w",
-            ).grid(row=0, column=0, sticky="w", padx=(0, 8))
-            default_zone = self._config.zone_map.get(
-                device.id, row_index % zones if zones > 1 else -1
-            )
-            value = (
-                "Globale"
-                if default_zone < 0
-                else f"Zona {min(default_zone, zones - 1) + 1}"
-            )
-            menu = ctk.CTkOptionMenu(
-                row,
-                values=values,
-                width=100,
-                height=25,
-                fg_color=COLORS["panel_alt"],
-                button_color=COLORS["border"],
-                button_hover_color=COLORS["border_light"],
-                dropdown_fg_color=COLORS["panel_alt"],
-                dropdown_hover_color=COLORS["card_hover"],
-                text_color=COLORS["text"],
-                font=font(9),
-                command=lambda _value: self._on_light_map_changed(),
-            )
-            menu.grid(row=0, column=1, sticky="e")
-            menu.set(value)
-            self._light_menus[device.id] = menu
-        if not self.app.devices:
-            ctk.CTkLabel(
-                self.light_map_frame,
-                text="Nessuna luce configurata.",
-                font=font(9),
-                text_color=COLORS["muted"],
-                anchor="w",
-            ).grid(row=0, column=0, sticky="w")
+            self._zone_assignment_buttons.append(button)
+        self._refresh_zone_assignments()
         self._rebuild_zone_map()
+
+    def _refresh_zone_assignments(self) -> None:
+        for index, button in enumerate(self._zone_assignment_buttons):
+            names = [
+                device.name
+                for device in self.app.devices
+                if self._config.zone_map.get(device.id) == index
+            ]
+            if not names:
+                text = "Nessuna luce"
+            elif len(names) <= 2:
+                text = ", ".join(names)
+            else:
+                text = f"{names[0]}, {names[1]} +{len(names) - 2}"
+            try:
+                button.configure(text=f"{text[:27]} ▾")
+            except tk.TclError:
+                pass
+        globals_ = [
+            device.name
+            for device in self.app.devices
+            if self._config.zone_map.get(device.id, -1) < 0
+        ]
+        if not self.app.devices:
+            caption = "Nessuna luce configurata."
+        elif globals_:
+            caption = "Globali (media schermo): " + ", ".join(globals_)
+        else:
+            caption = "Clicca sotto una zona per assegnare le luci."
+        self.preview_map_caption.configure(text=caption)
+
+    def _open_zone_menu(self, zone_index: int) -> None:
+        if not self.app.devices:
+            self.footer_status.configure(
+                text="Nessuna luce configurata: aggiungila dalle Impostazioni.",
+                text_color=COLORS["warning"],
+            )
+            return
+        if not (0 <= zone_index < len(self._zone_assignment_buttons)):
+            return
+        button = self._zone_assignment_buttons[zone_index]
+        menu = tk.Menu(
+            self,
+            tearoff=0,
+            bg=COLORS["panel_alt"],
+            fg=COLORS["text"],
+            activebackground=COLORS["accent_dark"],
+            activeforeground=COLORS["text"],
+            selectcolor=COLORS["accent"],
+            bd=0,
+            relief="flat",
+        )
+        self._zone_menu_vars = []
+        for device in self.app.devices:
+            variable = tk.BooleanVar(
+                value=self._config.zone_map.get(device.id) == zone_index
+            )
+            self._zone_menu_vars.append(variable)
+            menu.add_checkbutton(
+                label=device.name,
+                variable=variable,
+                command=lambda device_id=device.id, var=variable, index=zone_index: (
+                    self._toggle_zone_light(device_id, index, var)
+                ),
+            )
+        menu.add_separator()
+        menu.add_command(
+            label="Nessuna (Globale)",
+            command=lambda index=zone_index: self._clear_zone(index),
+        )
+        try:
+            menu.tk_popup(
+                button.winfo_rootx(),
+                button.winfo_rooty() + button.winfo_height(),
+            )
+        finally:
+            menu.grab_release()
+
+    def _toggle_zone_light(
+        self,
+        device_id: str,
+        zone_index: int,
+        variable: tk.BooleanVar,
+    ) -> None:
+        if variable.get():
+            self._config.zone_map[device_id] = zone_index
+        elif self._config.zone_map.get(device_id) == zone_index:
+            self._config.zone_map[device_id] = -1
+        self._refresh_zone_assignments()
+        self._rebuild_zone_map()
+        self._schedule_save()
+
+    def _clear_zone(self, zone_index: int) -> None:
+        for device in self.app.devices:
+            if self._config.zone_map.get(device.id) == zone_index:
+                self._config.zone_map[device.id] = -1
+        self._refresh_zone_assignments()
+        self._rebuild_zone_map()
+        self._schedule_save()
 
     # --------------------------------------------------------------- lifecycle
     def _present(self) -> None:
@@ -1328,11 +1500,13 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             )
 
     def refresh_devices(self) -> None:
-        self._config.zone_map = {
-            device.id: self._config.zone_map.get(device.id, -1)
-            for device in self.app.devices
-        }
-        self._rebuild_light_map()
+        count = max(1, self._zone_count())
+        for index, device in enumerate(self.app.devices):
+            if device.id not in self._config.zone_map:
+                self._config.zone_map[device.id] = (
+                    index % count if count > 1 else -1
+                )
+        self._rebuild_preview()
 
     def close(self) -> None:
         if self.app.screen_running:

@@ -35,6 +35,7 @@ from .util import (
 LOGGER = logging.getLogger("studiolights.screen_sync")
 
 SCREEN_CONFIG_FILE = "screen_sync.json"
+SCREEN_PRESET_FILE = "screen_sync_presets.json"
 ANALYSIS_WIDTH = 96
 ANALYSIS_HEIGHT = 54
 
@@ -170,24 +171,24 @@ def default_sensor_zones(count: int = 3) -> list[SensorZone]:
 class ScreenSyncConfig:
     monitor_index: int = 1
     monitor_label: str = ""
-    sampling_mode: str = "zones"
+    sampling_mode: str = "bands"
     sensor_zones: list[SensorZone] = field(default_factory=lambda: default_sensor_zones(3))
     zones: int = 3
-    sample_grid: int = 2
-    smoothing: float = 1.2
-    saturation: float = 1.25
-    brightness_min: int = 10
+    sample_grid: int = 3
+    smoothing: float = 0.2
+    saturation: float = 1.8
+    brightness_min: int = 0
     brightness_max: int = 80
-    brightness_gamma: float = 1.15
-    fps: int = 8
+    brightness_gamma: float = 1.8
+    fps: int = 60
     turbo: bool = False
-    neutral_white: bool = True
+    neutral_white: bool = False
     neutral_threshold: float = 0.08
     dark_off: bool = True
     dark_off_threshold: int = 5
     ignore_hud: bool = True
-    hold_on_black: bool = True
-    preset: str = "Realistico"
+    hold_on_black: bool = False
+    preset: str = "Default"
     zone_map: dict[str, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -222,7 +223,7 @@ class ScreenSyncConfig:
         self.dark_off_threshold = clamp_int(self.dark_off_threshold, 0, 20, 5)
         self.ignore_hud = bool(self.ignore_hud)
         self.hold_on_black = bool(self.hold_on_black)
-        self.preset = self.preset if self.preset in SCREEN_PRESETS else "Realistico"
+        self.preset = str(self.preset or "Default").strip() or "Default"
         count = self.zone_count
         cleaned: dict[str, int] = {}
         for device_id, zone in (self.zone_map or {}).items():
@@ -327,6 +328,34 @@ class ScreenSyncStore:
 
     def save(self, config: ScreenSyncConfig) -> None:
         atomic_write_json(self.path, config.to_dict(), keep_backup=True)
+
+
+class ScreenPresetStore:
+    """Named Screen Sync setting presets (no monitor or device mapping)."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = Path(root)
+        self.path = self.root / SCREEN_PRESET_FILE
+
+    def load(self) -> dict[str, dict[str, Any]]:
+        if not self.path.exists():
+            return {}
+        try:
+            data = read_json(self.path)
+        except Exception:
+            backup = backup_corrupt_file(self.path)
+            LOGGER.error("screen_sync_presets.json non leggibile: %s", backup)
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        presets: dict[str, dict[str, Any]] = {}
+        for name, value in data.items():
+            if isinstance(name, str) and name.strip() and isinstance(value, dict):
+                presets[name.strip()] = value
+        return presets
+
+    def save(self, presets: dict[str, dict[str, Any]]) -> None:
+        atomic_write_json(self.path, presets, keep_backup=True)
 
 
 @dataclass

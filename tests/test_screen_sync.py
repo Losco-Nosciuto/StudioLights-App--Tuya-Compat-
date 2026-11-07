@@ -12,6 +12,7 @@ from PIL import Image, ImageDraw
 from studiolights.models import LightDevice, LightResult
 from studiolights.screen_sync import (
     ScreenAnalyzer,
+    ScreenPresetStore,
     ScreenSyncConfig,
     ScreenSyncRunner,
     ScreenSyncStore,
@@ -22,6 +23,32 @@ from studiolights.screen_sync import (
 
 
 class ScreenConfigTests(unittest.TestCase):
+    def test_default_profile_is_tuned(self) -> None:
+        config = ScreenSyncConfig()
+        self.assertEqual(config.sampling_mode, "bands")
+        self.assertEqual(config.zones, 3)
+        self.assertEqual(config.sample_grid, 3)
+        self.assertEqual(config.smoothing, 0.2)
+        self.assertEqual(config.saturation, 1.8)
+        self.assertEqual(config.brightness_min, 0)
+        self.assertEqual(config.brightness_max, 80)
+        self.assertEqual(config.brightness_gamma, 1.8)
+        self.assertEqual(config.fps, 60)
+        self.assertFalse(config.neutral_white)
+        self.assertTrue(config.dark_off)
+        self.assertFalse(config.hold_on_black)
+        self.assertEqual(config.preset, "Default")
+        self.assertEqual(ScreenSyncConfig(preset="Custom").preset, "Custom")
+
+    def test_preset_store_roundtrip(self) -> None:
+        import tempfile
+
+        presets = {"Gaming": {"fps": 60, "saturation": 1.6, "dark_off": True}}
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ScreenPresetStore(Path(tmp))
+            store.save(presets)
+            self.assertEqual(store.load(), presets)
+
     def test_clamps_and_roundtrip(self) -> None:
         config = ScreenSyncConfig(
             sampling_mode="bands",

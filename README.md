@@ -36,7 +36,8 @@ Studio Lights risolve questo con:
 - **Screen Sync**: le luci seguono il monitor del gioco, con 1–8 sensori 16:9
   trascinabili e ridimensionabili (o fasce automatiche 3/5/7), 1/4/9 punti di
   campionamento per zona, 5–60 fps, preset **Bassa latenza**, smoothing, saturazione,
-  limiti di luminosità, bianco dedicato per i colori neutri e turbo music sperimentale.
+  limiti di luminosità, bianco dedicato per i colori neutri, **preset salvabili** e
+  turbo music sperimentale.
 - **Scene Studio** salvabili/richiamabili con un clic, con tipo *Globale*, *Snapshot* o
   *Flow*. Sovrascrittura ed eliminazione dal menu `⋯` della card.
 - Import automatico di `devices.json` (wizard tinytuya) e import manuale dalle impostazioni.
@@ -203,8 +204,12 @@ Scorciatoie: `F5` aggiorna lo stato, `Ctrl+N` crea una scena.
      spente davvero, invece di restare accese al minimo delle lampadine;
    - **Turbo music** (sperimentale): usa il DP28 `control_data` senza ACK per frame,
      con fallback automatico al frame normale se il firmware lo rifiuta.
-6. Nella mappa **LUCI → ZONE**, assegna ogni lampadina a un sensore o a **Globale**.
-7. Premi **AVVIA SYNC**. Se non hai selezionato luci, il pulsante resta disabilitato e la finestra te lo dice. Il pulsante **■ STOP SYNC** appare nella barra di stato.
+6. Sotto ogni zona dell’**anteprima** c’è un pulsante con le luci assegnate: cliccalo
+   per spuntare una o più lampadine (o **Nessuna (Globale)**). Le luci globali usano la
+   media dello schermo.
+7. In alto a destra il menu **Default / preset** applica un profilo; **+ Preset** salva
+   le impostazioni correnti con un nome. I preset non salvano monitor e mappa luci.
+8. Premi **AVVIA SYNC**. Se non hai selezionato luci, il pulsante resta disabilitato e la finestra te lo dice. Il pulsante **■ STOP SYNC** appare nella barra di stato.
 
 L'anteprima mostra i millisecondi di cattura/analisi e gli **fps reali**: con `mss` e
 schermo 1440p la cattura costa ~28 ms, quindi il tetto pratico è ~30 fps anche
@@ -244,10 +249,15 @@ Le impostazioni vengono salvate in `screen_sync.json` (runtime, ignorato da Git)
 ripristinate al riavvio. Le modifiche a monitor, sensori e mappa luci si applicano
 al successivo **Avvia Sync**; ferma e riavvia per cambiarle.
 
+La finestra parte con il profilo **Default** (fasce 3, 9 punti/zona, 60 fps, saturazione
+1.8, max 80%, curva buio 1.8, minimo 0%, Nero = spento). I preset utente finiscono in
+`screen_sync_presets.json` (runtime, ignorato da Git). La rotella del mouse scorre solo
+la pagina: non modifica slider o menu sotto il cursore.
+
 ## File di configurazione
 
 Tutti i file stanno nella root del progetto e vengono creati automaticamente se mancanti.
-I file runtime (`lights_config.json`, `scenes.json`, `screen_sync.json`, `devices.json`, `tinytuya.json`,
+I file runtime (`lights_config.json`, `scenes.json`, `screen_sync.json`, `screen_sync_presets.json`, `devices.json`, `tinytuya.json`,
 `tuya-raw.json`, `snapshot.json`) sono **ignorati da Git** perché possono contenere Local
 Key o dati personali. Nel repository trovi solo i modelli `lights_config.example.json`,
 `scenes.example.json` e `screen_sync.example.json`.
@@ -325,7 +335,7 @@ non contiene stati per singola luce.
 - La **Local Key** è un segreto: chi la possiede e ha accesso alla LAN può controllare la
   lampadina. Non condividerla.
 - `.gitignore` esclude tutti i file runtime con key o dati personali: `devices.json`,
-  `lights_config.json`, `scenes.json`, `screen_sync.json`, `tinytuya.json`, `tuya-raw.json`, `snapshot.json`,
+  `lights_config.json`, `scenes.json`, `screen_sync.json`, `screen_sync_presets.json`, `tinytuya.json`, `tuya-raw.json`, `snapshot.json`,
   log e backup. I file `*.example.json` tracciati contengono solo dati demo.
 - Non forzare l'aggiunta di questi file con `git add -f`: finirebbero nella cronologia.
 - L'app non contatta il cloud: parla solo con gli IP in `lights_config.json` sulla porta
@@ -357,7 +367,7 @@ studiolights/
   ui/colorpicker.py          picker HSV con Pillow
   ui/dialogs.py              impostazioni, editor luce, scene, palette, conferme
 tests/test_core.py           19 test senza hardware
-tests/test_screen_sync.py    18 test Screen Sync senza monitor/Tuya
+tests/test_screen_sync.py    20 test Screen Sync senza monitor/Tuya
 tools/make_icon.py           rigenera l'icona
 ```
 
@@ -373,7 +383,7 @@ atomici, classificazione errori, matching IP, interpolazione colori, motore Flow
 letterbox, smoothing, bianco dedicato, saturazione, curva buio, runner con capture
 finta, turbo con fallback). Non richiedono lampadine reali.
 
-Totale attuale: **37 test** (19 core + 18 Screen Sync).
+Totale attuale: **39 test** (19 core + 20 Screen Sync).
 
 ## Troubleshooting
 
