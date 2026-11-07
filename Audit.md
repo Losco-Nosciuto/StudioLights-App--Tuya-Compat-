@@ -1,4 +1,4 @@
-# Audit tecnico — Studio Lights 1.3.3
+# Audit tecnico — Studio Lights 1.4.0
 
 **Data:** 7 novembre 2026
 **Ambiente di sviluppo:** Windows 11, Python 3.12.10, Tk 8.6
@@ -428,6 +428,14 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 ---
 
 ## 12. Changelog
+
+### 1.4.0 - 2026-11-07
+
+- **Replica live del monitor**: l'editor sensori mostra il monitor campionato
+  (aggiornato ogni 2 s) con i sensori sopra, per vedere esattamente dove si campiona.
+- L'anteprima dei sensori mostra il **colore grezzo campionato** e l'etichetta
+  `raw → output`, così non si confonde più con il target.
+- Test: **37** (18 Screen Sync).
 
 ### 1.3.4 - 2026-11-07
 

@@ -8,6 +8,12 @@ from tkinter import simpledialog
 from typing import Any
 
 import customtkinter as ctk
+from PIL import Image, ImageTk
+
+try:
+    import mss as _mss
+except Exception:
+    _mss = None
 
 from ..screen_sync import (
     SCREEN_PRESETS,
@@ -58,10 +64,14 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         self._selected_zone: int | None = 0 if self._zones else None
         self._zone_area: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
         self._drag: dict[str, Any] | None = None
+        self._sensor_thumb: Image.Image | None = None
+        self._thumb_photo: ImageTk.PhotoImage | None = None
+        self._thumb_job: str | None = None
         self._build()
         self._apply_config(self._config)
         self._refresh_monitors()
         self._update_preview()
+        self._thumb_job = self.after(500, self._capture_thumb_main)
         self.after(70, self._present)
 
     # ------------------------------------------------------------------ build
@@ -444,12 +454,22 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         right = left + content_w
         bottom = top + content_h
         self._zone_area = (left, top, right, bottom)
+        if self._sensor_thumb is not None:
+            try:
+                thumb = self._sensor_thumb.resize(
+                    (max(1, int(right - left)), max(1, int(bottom - top))),
+                    Image.Resampling.BILINEAR,
+                )
+                self._thumb_photo = ImageTk.PhotoImage(thumb)
+                canvas.create_image(left, top, image=self._thumb_photo, anchor="nw")
+            except Exception:
+                pass
         canvas.create_rectangle(
             left,
             top,
             right,
             bottom,
-            fill=COLORS["panel"],
+            fill="",
             outline=COLORS["border_light"],
             width=1,
         )
@@ -479,6 +499,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
                     x1 - 2,
                     bottom - 2,
                     fill=COLORS["panel_alt"],
+                    stipple="gray50",
                     outline=COLORS["border_light"],
                 )
                 canvas.create_text(
@@ -512,6 +533,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
                 x1,
                 y1,
                 fill=COLORS["accent_dark"] if selected else COLORS["panel_alt"],
+                stipple="gray50",
                 outline=COLORS["accent"] if selected else COLORS["border_light"],
                 width=2 if selected else 1,
             )
@@ -1397,6 +1419,42 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         self._rebuild_zone_map()
         self._schedule_save()
 
+    def _capture_thumb_main(self) -> None:
+        if not self.winfo_exists():
+            return
+        monitor_index = self._config.monitor_index
+        try:
+            monitor = self._monitor_by_label.get(self.monitor_menu.get())
+            if monitor is not None:
+                monitor_index = monitor.index
+        except Exception:
+            pass
+        if _mss is not None:
+            try:
+                with _mss.MSS() as sct:
+                    monitors = sct.monitors
+                    index = (
+                        monitor_index
+                        if 1 <= monitor_index < len(monitors)
+                        else 1
+                    )
+                    shot = sct.grab(monitors[index])
+                    self._sensor_thumb = Image.frombytes(
+                        "RGB", shot.size, shot.bgra, "raw", "BGRX"
+                    )
+            except Exception:
+                LOGGER.debug("Sensor thumbnail capture failed.", exc_info=True)
+        self._rebuild_zone_map()
+        self._thumb_job = self.after(2000, self._capture_thumb_main)
+
+    def _stop_thumb(self) -> None:
+        if self._thumb_job is not None:
+            try:
+                self.after_cancel(self._thumb_job)
+            except tk.TclError:
+                pass
+            self._thumb_job = None
+
     # --------------------------------------------------------------- lifecycle
     def _present(self) -> None:
         if not self.winfo_exists():
@@ -1524,6 +1582,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         self._rebuild_preview()
 
     def close(self) -> None:
+        self._stop_thumb()
         if self.app.screen_running:
             self.app.stop_screen_sync(announce=False)
         if self._preview_job is not None:

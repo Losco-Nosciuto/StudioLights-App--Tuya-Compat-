@@ -36,8 +36,8 @@ Studio Lights risolve questo con:
 - **Screen Sync**: le luci seguono il monitor del gioco, con 1–8 sensori 16:9
   trascinabili e ridimensionabili (o fasce automatiche 3/5/7), 1/4/9 punti di
   campionamento per zona, 5–60 fps, preset **Bassa latenza**, smoothing, saturazione,
-  limiti di luminosità, bianco dedicato per i colori neutri, **preset salvabili** e
-  turbo music sperimentale.
+  limiti di luminosità, bianco dedicato per i colori neutri, **preset salvabili**,
+  **replica live del monitor nell’editor** e turbo music sperimentale.
 - **Scene Studio** salvabili/richiamabili con un clic, con tipo *Globale*, *Snapshot* o
   *Flow*. Sovrascrittura ed eliminazione dal menu `⋯` della card.
 - Import automatico di `devices.json` (wizard tinytuya) e import manuale dalle impostazioni.
@@ -205,6 +205,8 @@ Scorciatoie: `F5` aggiorna lo stato, `Ctrl+N` crea una scena.
      tipico della sintesi RGB;
    - **Nero = spento**: sotto il 5% di luminosità (o su schermo nero) le luci vengono
      spente davvero, invece di restare accese al minimo delle lampadine;
+   - **Replica monitor**: l’editor mostra il monitor campionato (aggiornato ogni 2 s)
+     con i sensori sopra, così si vede esattamente cosa si sta campionando.
    - **Turbo music** (sperimentale): usa il DP28 `control_data` senza ACK per frame,
      con fallback automatico al frame normale se il firmware lo rifiuta.
 6. Sotto ogni zona dell’**anteprima** c’è un pulsante con le luci assegnate: cliccalo
