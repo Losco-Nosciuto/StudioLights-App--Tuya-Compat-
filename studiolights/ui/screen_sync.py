@@ -628,6 +628,8 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         self._drag = None
         self._config.sensor_zones = [zone.copy() for zone in self._zones]
         self._schedule_save()
+        self._refresh_editor_preview()
+        self._push_live_config()
 
     def _on_zone_double_click(self, event: tk.Event) -> None:
         if self._sampling_mode() != "zones":
@@ -716,6 +718,8 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         self._sync_mode_widgets()
         self._rebuild_preview()
         self._schedule_save()
+        self._refresh_editor_preview()
+        self._push_live_config()
 
     def _sync_mode_widgets(self) -> None:
         state = "normal" if self._sampling_mode() == "bands" else "disabled"
@@ -735,6 +739,8 @@ class ScreenSyncWindow(ctk.CTkToplevel):
                 self._config.zone_map[device_id] = remapped
         self._rebuild_preview()
         self._schedule_save()
+        self._refresh_editor_preview()
+        self._push_live_config()
 
     def _refresh_selection_footer(self) -> None:
         if self.app.screen_running:
@@ -1172,6 +1178,29 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             self.get_config()
         except Exception:
             LOGGER.exception("Salvataggio screen_sync.json fallito")
+        self._push_live_config()
+
+    def _push_live_config(self) -> None:
+        if not getattr(self.app, "screen_running", False):
+            return
+        try:
+            self.app.update_screen_sync_config(self)
+        except Exception:
+            LOGGER.exception("Aggiornamento live Screen Sync fallito")
+
+    def _refresh_editor_preview(self) -> None:
+        if getattr(self.app, "screen_running", False):
+            return
+        if self._sensor_thumb is None:
+            return
+        try:
+            self._editor_frame = ScreenAnalyzer().update(
+                self._sensor_thumb, self._read_config(), 0.1
+            )
+        except Exception:
+            LOGGER.debug("Anteprima editor Screen Sync fallita.", exc_info=True)
+            self._editor_frame = None
+        self._update_preview()
 
     def _preset_names(self) -> list[str]:
         names = ["Default", *sorted(self._presets)]
@@ -1214,6 +1243,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         finally:
             self._preset_loading = False
         self._schedule_save()
+        self._push_live_config()
         self.footer_status.configure(
             text=f"Preset «{name}» applicato.",
             text_color=COLORS["muted"],
@@ -1260,6 +1290,8 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             self._rebuild_preview()
         self._rebuild_zone_map()
         self._schedule_save()
+        self._refresh_editor_preview()
+        self._push_live_config()
 
     def _refresh_monitors(self) -> None:
         self._monitors = list_monitors()
@@ -1412,6 +1444,8 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         self._refresh_zone_assignments()
         self._rebuild_zone_map()
         self._schedule_save()
+        self._refresh_editor_preview()
+        self._push_live_config()
 
     def _clear_zone(self, zone_index: int) -> None:
         for device in self.app.devices:
@@ -1420,6 +1454,8 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         self._refresh_zone_assignments()
         self._rebuild_zone_map()
         self._schedule_save()
+        self._refresh_editor_preview()
+        self._push_live_config()
 
     def _capture_thumb_main(self) -> None:
         if not self.winfo_exists():

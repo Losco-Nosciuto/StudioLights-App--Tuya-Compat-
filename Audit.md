@@ -1,4 +1,4 @@
-# Audit tecnico — Studio Lights 1.4.1
+# Audit tecnico — Studio Lights 1.4.2
 
 **Data:** 7 novembre 2026
 **Ambiente di sviluppo:** Windows 11, Python 3.12.10, Tk 8.6
@@ -428,6 +428,16 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 ---
 
 ## 12. Changelog
+
+### 1.4.2 - 2026-11-07
+
+- **Anteprima live dei sensori**: quando il sync non è attivo, l’editor esegue
+  un’analisi one-shot del monitor (ogni 2 s) e aggiorna i riquadri con i colori
+  che i sensori vedono, così si vede subito l’effetto di uno spostamento senza
+  fermare/riavviare il sync.
+- La scritta sui riquadri è ora `raw → output` (es. `28% → 14%`), con `OFF`
+  su sfondo quasi nero.
+- L’anteprima ora mostra il **colore grezzo campionato**, non il target scalato.
 
 ### 1.4.1 - 2026-11-07
 
