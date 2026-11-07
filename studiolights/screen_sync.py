@@ -646,8 +646,12 @@ class ScreenAnalyzer:
         # Boost saturation with a soft curve: pale colours gain more than
         # already-saturated ones, so light yellows/creams stay recognisable.
         # The curve is continuous all the way to zero, so a near-neutral
-        # zone never flips abruptly between colour and pure white.
+        # zone never flips abruptly between colour and pure white. A small
+        # floor keeps near-neutral colours slightly tinted instead of
+        # collapsing to pure white (which many bulbs render as a cold flash).
         boosted = min(1.0, pow(saturation, 0.85) * config.saturation)
+        if 0.0 < saturation < 0.08:
+            boosted = max(boosted, 0.08)
         target_r, target_g, target_b = colorsys.hsv_to_rgb(hue, boosted, 1.0)
         return ZoneTarget(
             rgb=(

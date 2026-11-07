@@ -429,6 +429,14 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 
 ## 12. Changelog
 
+### 1.3.4 - 2026-11-07
+
+- **Flicker colore/bianco persistente (2)**: aggiunto un floor di saturazione
+  (`max(boosted, 0.08)` per pixel quasi neutri) così una zona quasi neutra non
+  collassa mai a bianco puro. Il colore rimane leggermente tinto e stabile.
+- Consiglio: mappare Studio 1 su una zona specifica invece di **Globale**, che è la
+  media di tutte le zone e su schermi multicolore diventa grigiastra.
+
 ### 1.3.3 - 2026-11-07
 
 - **Flicker colore/bianco persistente**: rimosso del tutto il caso speciale
