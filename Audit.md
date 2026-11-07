@@ -1,4 +1,4 @@
-# Audit tecnico — Studio Lights 1.2.6
+# Audit tecnico — Studio Lights 1.2.7
 
 **Data:** 7 novembre 2026
 **Ambiente di sviluppo:** Windows 11, Python 3.12.10, Tk 8.6
@@ -152,17 +152,18 @@ Screen Sync è separato dal Flow palette ma riusa `submit_colour_frame`:
   non viene inviato in RGB — dove una traccia di blu diventa un cast bluastro — ma in
   `mode="white"` con temperatura calda/fredda dedotta dalla tinta. Il bianco usa così
   i LED bianchi dedicati del bulbo.
-- **Luminosità**: curva percettiva con toe sul nero
-  (`((luma - 0.02) / 0.98) ** gamma`, default gamma 1.15). Una schermata quasi nera
-  porta il target a 0–2% invece del vecchio `luma ** 0.75`, che schiariva troppo le ombre.
-  `Luminosità minima` resta il pavimento effettivo.
+- **Luminosità**: curva percettiva con toe sul nero. Lo slider **Curva buio**
+  (0.6–1.8) controlla l’ampiezza del toe (`0.01–0.10`), non un gamma globale: gli scuri
+  diventano cupi senza spegnere anche i toni medi/bassi. `Luminosità minima` resta il
+  pavimento effettivo.
 - **Testo chiaro su sfondo scuro**: oltre alla media si calcola la luminanza mediana del
   frame (a risoluzione piena) e si applica un fattore di scurimento
   `median / mean` (clamp 0.4–1.0) alla luminanza delle zone. La correzione si applica
-  **solo se la media del frame è sotto 0.32**, così una scena luminosa con bordi scuri
+  **solo se la mediana del frame è sotto 0.22**, così una scena luminosa con bordi scuri
   non viene scurita.
-- **Anteprima**: i riquadri sono scalati in modo morbido per la luminosità target
-  (`0.2 + 0.8 × brightness/100`), con nero pieno solo per le zone OFF.
+- **Anteprima**: mostra il campione RGB grezzo (ciò che vede il sensore); l’etichetta
+  riporta l’output `%`/`OFF`. La riga di stato mostra media/mediana del frame e il
+  fattore di correzione buio.
 - **Nero = spento**: sotto `dark_off_threshold` (default 5%) o su frame nero il runner
   invia lo switch-off reale (`power=False`) invece di un 1–2% che molte lampadine
   rendono comunque luminoso. Isteresi: riaccensione sopra soglia+2. Lo stato off viene
@@ -428,6 +429,17 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 ---
 
 ## 12. Changelog
+
+### 1.2.7 — 2026-11-07
+
+- **Curva buio = toe, non gamma globale**: alzare lo slider non scurisce più le zone
+  luminose; agisce solo sulla soglia degli scuri. Risolve i valori 0/7/0 su wallpaper
+  luminosi con Curva buio alta.
+- **Anteprima fedele**: i riquadri mostrano il colore grezzo campionato, non l’output
+  scalato; l’etichetta continua a mostrare `%`/`OFF`.
+- **Diagnostica** nella riga di stato: `scena media/mediana · ×fattore`, per capire se
+  la cattura vede davvero scuro.
+- Test: **36** (17 Screen Sync).
 
 ### 1.2.6 — 2026-11-07
 

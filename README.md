@@ -220,8 +220,8 @@ diventa un cast bluastro) ma in modalità bianco.
 
 La luminosità usa una curva percettiva con un “toe” sul nero: una schermata scura
 (editor, desktop, gioco notturno) porta le luci quasi a zero invece di lasciarle accese
-al minimo. Alza **Curva buio** se vuoi gli scuri ancora più cupi; abbassala se preferisci
-più luce nelle scene buie.
+al minimo. **Curva buio** controlla solo l’ampiezza di questo toe: alzandola gli scuri
+diventano più cupi senza scurire anche le zone luminose (non è un gamma globale).
 
 Con **Nero = spento** attivo, sotto il 5% di luminosità (o su schermo nero) il runner
 invia lo spegnimento reale invece di un 1–2% che molte lampadine rendono comunque
@@ -230,11 +230,12 @@ la soglia possa scendere; su schermo nero lo spegnimento scatta comunque.
 
 Per non farsi ingannare dai testi chiari su sfondi scuri, la luminosità usa anche la
 **luminanza mediana** del frame oltre alla media: una finestra piena di testo bianco
-su sfondo nero resta scura e non accende le luci. La correzione si applica **solo ai
-frame davvero scuri** (media < 0,32), così una scena luminosa con bordi o taskbar scuri
-non viene scurita. L’anteprima dei sensori mostra il colore **scalato in modo morbido
-per la luminosità reale**: su una schermata nera i riquadri appaiono quasi neri, ma una
-scena luminosa resta riconoscibile e non diventa un blocco nero.
+su sfondo nero resta scura e non accende le luci. La correzione si applica **solo se la
+mediana del frame è sotto 0,22**, quindi una scena luminosa con bordi o taskbar scuri
+non viene scurita. L’anteprima dei sensori mostra il **colore grezzo campionato**
+(quello che vede davvero il sensore), mentre l’etichetta indica l’output (`%` o `OFF`).
+La riga di stato aggiunge **media/mediana della scena** e il fattore di correzione, per
+capire subito cosa sta vedendo la cattura.
 
 Per i giochi: **borderless windowed**, HDR disattivato. In fullscreen exclusive alcuni
 giochi danno frame neri; in quel caso l'app lo segnala e non invia nero alle luci.
@@ -396,7 +397,7 @@ Totale attuale: **36 test** (19 core + 17 Screen Sync).
 | Screen Sync: luci accese su schermata nera | alza **Curva buio** (es. 1.3–1.5), metti **Luminosità minima 0%** e attiva **Nero = spento**. |
 | Screen Sync: 1–2% ancora troppo luminoso | è il minimo delle lampadine: attiva **Nero = spento**, che spegne davvero sotto il 5% invece di mandare un livello quasi zero. |
 | Screen Sync: anteprima sensori sempre bianca | l'anteprima ora è scalata per la luminosità reale: se resta chiara, la zona include molto testo/pannelli chiari; usa sensori più piccoli sulle aree scure. |
-| Screen Sync: anteprima troppo scura su scena luminosa | la correzione della mediana si applica solo sotto media 0,32; se succede ancora, controlla di star campionando il monitor giusto e che la finestra dell'app non copra i sensori. |
+| Screen Sync: anteprima troppo scura su scena luminosa | l’anteprima mostra il campione grezzo: se è scura, la cattura sta vedendo scuro. Controlla monitor selezionato, che la finestra dell’app non copra i sensori e la riga `scena media/mediana`; sotto mediana 0,22 scatta la correzione buio. |
 | Temperatura invertita | alcuni modelli mappano 0 = freddo. È documentato come limite noto. |
 | La GUI si blocca | non dovrebbe: i comandi sono in thread. Controlla `logs/studiolights.log`. |
 | La scansione non trova nulla | UDP broadcast bloccato dal firewall o rete guest/client isolation. |

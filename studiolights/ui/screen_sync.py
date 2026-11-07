@@ -1240,12 +1240,8 @@ class ScreenSyncWindow(ctk.CTkToplevel):
                     self._config.dark_off
                     and target.brightness <= self._config.dark_off_threshold
                 )
-                if is_off:
-                    factor = 0.04
-                else:
-                    factor = 0.2 + 0.8 * min(1.0, target.brightness / 100.0)
-                dimmed = tuple(max(0, min(255, round(channel * factor))) for channel in target.rgb)
-                color = f"#{dimmed[0]:02x}{dimmed[1]:02x}{dimmed[2]:02x}"
+                sample = target.sample_rgb if target.sample_rgb != (0, 0, 0) else target.rgb
+                color = f"#{sample[0]:02x}{sample[1]:02x}{sample[2]:02x}"
                 box.configure(fg_color=color)
                 if index < len(self._preview_labels):
                     self._preview_labels[index].configure(
@@ -1256,14 +1252,16 @@ class ScreenSyncWindow(ctk.CTkToplevel):
                         ),
                         text_color=(
                             "#101418"
-                            if factor > 0.55 and target.luma > 0.45
+                            if target.sample_luma > 0.45
                             else COLORS["text"]
                         ),
                     )
             self.preview_status.configure(
                 text=(
-                    f"{frame.capture_ms} ms capture · {frame.analysis_ms} ms analisi · "
-                    f"{self.app.screen_runner.effective_fps:.1f} fps reali"
+                    f"{frame.capture_ms} ms · {frame.analysis_ms} ms · "
+                    f"{self.app.screen_runner.effective_fps:.1f} fps · "
+                    f"scena {frame.frame_luma:.0%}/{frame.frame_median:.0%} · "
+                    f"×{frame.dark_factor:.2f}"
                 )
             )
             if frame.warning:

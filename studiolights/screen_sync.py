@@ -329,7 +329,7 @@ class ScreenSyncStore:
         atomic_write_json(self.path, config.to_dict(), keep_backup=True)
 
 
-@dataclass(frozen=True)
+@dataclass
 class ZoneTarget:
     rgb: tuple[int, int, int]
     brightness: int
@@ -337,6 +337,8 @@ class ZoneTarget:
     saturation: float
     mode: str = "colour"
     colortemp: int = 50
+    sample_rgb: tuple[int, int, int] = (0, 0, 0)
+    sample_luma: float = 0.0
 
 
 @dataclass
@@ -348,12 +350,16 @@ class ScreenFrame:
     analysis_ms: int = 0
     black: bool = False
     warning: str = ""
+    frame_luma: float = 0.0
+    frame_median: float = 0.0
+    dark_factor: float = 1.0
 
 
 @dataclass
 class _SampleState:
     rgb: tuple[float, float, float]
     luma: float
+    raw_luma: float = 0.0
 
 
 def _mean_box(image: Image.Image, box: tuple[int, int, int, int]) -> tuple[tuple[float, float, float], float]:
@@ -412,9 +418,9 @@ class ScreenAnalyzer:
         frame_mean = ImageStat.Stat(gray).mean[0] / 255.0
         frame_median = ImageStat.Stat(gray_full).median[0] / 255.0
         dark_factor = 1.0
-        if 0.001 < frame_mean < 0.32:
-            # Only correct frames that are genuinely dark: a bright desktop or
-            # game scene must not be dimmed just because it has dark corners.
+        if frame_mean > 0.001 and frame_median < 0.22:
+            # Only correct frames whose median is actually dark: a bright
+            # wallpaper/game with dark edges has a high median and is left alone.
             dark_factor = max(0.4, min(1.0, frame_median / frame_mean))
         if config.sampling_mode == "zones":
             raw_zones: list[tuple[tuple[float, float, float], float]] = []
@@ -473,20 +479,25 @@ class ScreenAnalyzer:
 
         if not self._state or len(self._state) != len(raw_zones):
             self._state = [
-                _SampleState(rgb=color, luma=luma)
-                for (color, _mean_luma), luma in zip(raw_zones, raw_lumas)
+                _SampleState(rgb=color, luma=luma, raw_luma=mean_luma)
+                for (color, mean_luma), luma in zip(raw_zones, raw_lumas)
             ]
-            self._global_state = _SampleState(rgb=global_color, luma=global_luma)
+            self._global_state = _SampleState(
+                rgb=global_color,
+                luma=global_luma,
+                raw_luma=global_mean_luma,
+            )
         alpha = 1.0
         if dt > 0:
             alpha = 1.0 - pow(2.718281828, -dt / max(0.05, config.smoothing))
             alpha = max(0.05, min(1.0, alpha))
 
         smoothed: list[_SampleState] = []
-        for previous, (color, _mean_luma), luma in zip(self._state, raw_zones, raw_lumas):
+        for previous, (color, mean_luma), luma in zip(self._state, raw_zones, raw_lumas):
             current = _SampleState(
                 rgb=tuple(previous.rgb[i] + (color[i] - previous.rgb[i]) * alpha for i in range(3)),  # type: ignore[arg-type]
                 luma=previous.luma + (luma - previous.luma) * alpha,
+                raw_luma=previous.raw_luma + (mean_luma - previous.raw_luma) * alpha,
             )
             smoothed.append(current)
         assert self._global_state is not None
@@ -496,6 +507,8 @@ class ScreenAnalyzer:
                 for i in range(3)
             ),  # type: ignore[arg-type]
             luma=self._global_state.luma + (global_luma - self._global_state.luma) * alpha,
+            raw_luma=self._global_state.raw_luma
+            + (global_mean_luma - self._global_state.raw_luma) * alpha,
         )
         self._state = smoothed
         self._global_state = global_smoothed
@@ -510,6 +523,9 @@ class ScreenAnalyzer:
             capture_ms=capture_ms,
             analysis_ms=int((time.perf_counter() - started) * 1000),
             black=black,
+            frame_luma=frame_mean,
+            frame_median=frame_median,
+            dark_factor=dark_factor,
         )
         if black:
             frame.warning = "Schermo nero o protetto: usa borderless / disattiva HDR."
@@ -553,16 +569,20 @@ class ScreenAnalyzer:
         red, green, blue = (max(0.0, min(255.0, channel)) for channel in state.rgb)
         hue, saturation, _value = colorsys.rgb_to_hsv(red / 255, green / 255, blue / 255)
         span = max(0, config.brightness_max - config.brightness_min)
-        # Perceptual curve with a dark toe: a nearly black desktop must drive the
-        # bulbs to (almost) zero instead of the old luma^0.75 shadow boost.
+        # "Curva buio" controls the dark toe, not a global gamma: increasing it
+        # crushes shadows without dimming midtones and highlights.
         luma = max(0.0, min(1.0, state.luma))
-        toe = 0.02
+        strength = max(0.6, min(1.8, config.brightness_gamma))
+        toe = 0.01 + (strength - 0.6) * 0.075
         if luma <= toe:
             level = 0.0
         else:
-            level = pow((luma - toe) / (1.0 - toe), config.brightness_gamma)
+            level = pow((luma - toe) / (1.0 - toe), 1.05)
         brightness = config.brightness_min + int(round(span * level))
         brightness = max(config.brightness_min, min(config.brightness_max, brightness))
+        sample_rgb = tuple(
+            int(round(max(0.0, min(255.0, channel)))) for channel in state.rgb
+        )
 
         if config.neutral_white and saturation <= config.neutral_threshold:
             # Near-neutral colours are unreliable in RGB colour mode: a 1–2%
@@ -582,6 +602,8 @@ class ScreenAnalyzer:
                 saturation=0.0,
                 mode="white",
                 colortemp=colortemp,
+                sample_rgb=sample_rgb,  # type: ignore[arg-type]
+                sample_luma=state.raw_luma,
             )
 
         # Boost saturation with a soft curve: pale colours gain more than
@@ -600,6 +622,8 @@ class ScreenAnalyzer:
             brightness=brightness,
             luma=state.luma,
             saturation=boosted,
+            sample_rgb=sample_rgb,  # type: ignore[arg-type]
+            sample_luma=state.raw_luma,
         )
 
 
