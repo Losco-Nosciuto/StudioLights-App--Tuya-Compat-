@@ -183,6 +183,8 @@ class ScreenSyncConfig:
     turbo: bool = False
     neutral_white: bool = True
     neutral_threshold: float = 0.08
+    dark_off: bool = True
+    dark_off_threshold: int = 5
     ignore_hud: bool = True
     hold_on_black: bool = True
     preset: str = "Realistico"
@@ -216,6 +218,8 @@ class ScreenSyncConfig:
         self.turbo = bool(self.turbo)
         self.neutral_white = bool(self.neutral_white)
         self.neutral_threshold = round(clamp_float(self.neutral_threshold, 0.0, 0.5, 0.08), 3)
+        self.dark_off = bool(self.dark_off)
+        self.dark_off_threshold = clamp_int(self.dark_off_threshold, 0, 20, 5)
         self.ignore_hud = bool(self.ignore_hud)
         self.hold_on_black = bool(self.hold_on_black)
         self.preset = self.preset if self.preset in SCREEN_PRESETS else "Realistico"
@@ -262,6 +266,8 @@ class ScreenSyncConfig:
             "turbo": self.turbo,
             "neutral_white": self.neutral_white,
             "neutral_threshold": self.neutral_threshold,
+            "dark_off": self.dark_off,
+            "dark_off_threshold": self.dark_off_threshold,
             "ignore_hud": self.ignore_hud,
             "hold_on_black": self.hold_on_black,
             "preset": self.preset,
@@ -292,6 +298,8 @@ class ScreenSyncConfig:
             turbo=data.get("turbo", False),
             neutral_white=data.get("neutral_white", True),
             neutral_threshold=data.get("neutral_threshold", 0.08),
+            dark_off=data.get("dark_off", True),
+            dark_off_threshold=data.get("dark_off_threshold", 5),
             ignore_hud=data.get("ignore_hud", True),
             hold_on_black=data.get("hold_on_black", True),
             preset=data.get("preset", "Realistico"),
@@ -628,6 +636,7 @@ class ScreenSyncRunner:
         self._pending: dict[str, Future[LightResult]] = {}
         self._pending_turbo: dict[str, bool] = {}
         self._turbo_fallback: set[str] = set()
+        self._dark_off: set[str] = set()
         self._failed_details: dict[str, tuple[str, str]] = {}
         self._last_colors: dict[str, tuple[int, int, int]] = {}
         self._last_targets: dict[str, tuple[tuple[int, int, int], int]] = {}
@@ -656,6 +665,10 @@ class ScreenSyncRunner:
     @property
     def last_targets(self) -> dict[str, tuple[tuple[int, int, int], int]]:
         return dict(self._last_targets)
+
+    @property
+    def power_off_ids(self) -> set[str]:
+        return set(self._dark_off)
 
     @property
     def capture_error(self) -> str:
@@ -695,6 +708,7 @@ class ScreenSyncRunner:
         self._pending = {}
         self._pending_turbo = {}
         self._turbo_fallback = set()
+        self._dark_off = set()
         self._failed_details = {}
         self._last_colors = {}
         self._last_targets = {}
@@ -763,7 +777,12 @@ class ScreenSyncRunner:
                 with self._frame_lock:
                     self._last_frame = frame
 
-                if not (frame.black and self._config.hold_on_black):
+                hold_black = (
+                    frame.black
+                    and self._config.hold_on_black
+                    and not self._config.dark_off
+                )
+                if not hold_black:
                     for index, device in enumerate(self._devices):
                         pending = self._pending.get(device.id)
                         if pending is not None:
@@ -811,6 +830,37 @@ class ScreenSyncRunner:
                         if zone is None:
                             zone = index % zone_count if zone_count > 1 else -1
                         target = frame.global_target if zone < 0 else frame.zones[zone % zone_count]
+
+                        threshold = self._config.dark_off_threshold
+                        if self._config.dark_off:
+                            limit = threshold + 2 if device.id in self._dark_off else threshold
+                            is_dark = target.brightness <= limit or frame.black
+                        else:
+                            is_dark = False
+                        if is_dark:
+                            self._last_colors[device.id] = (0, 0, 0)
+                            self._last_targets[device.id] = ((0, 0, 0), 0)
+                            if device.id not in self._dark_off:
+                                self._dark_off.add(device.id)
+                                try:
+                                    self._pending[device.id] = (
+                                        self.controller.submit_colour_frame(
+                                            device, (0, 0, 0), 0, power=False
+                                        )
+                                    )
+                                    self._pending_turbo[device.id] = False
+                                    LOGGER.info(
+                                        "Screen Sync: %s spenta (schermo scuro).",
+                                        device.name,
+                                    )
+                                except Exception:
+                                    LOGGER.exception(
+                                        "Screen Sync: impossibile spegnere la luce."
+                                    )
+                            continue
+                        if device.id in self._dark_off:
+                            self._dark_off.discard(device.id)
+
                         self._last_colors[device.id] = target.rgb
                         self._last_targets[device.id] = (target.rgb, target.brightness)
                         use_turbo = (

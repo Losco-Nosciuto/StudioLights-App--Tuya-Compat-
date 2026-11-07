@@ -2270,6 +2270,7 @@ class StudioLightsApp(ctk.CTk):
                 pass
             self._screen_health_job = None
         last_targets = self.screen_runner.last_targets
+        power_off_ids = self.screen_runner.power_off_ids
         details = self.screen_runner.failed_details
         capture_error = self.screen_runner.capture_error
         self.screen_runner.stop()
@@ -2286,7 +2287,7 @@ class StudioLightsApp(ctk.CTk):
             if state is None:
                 continue
             self.states[device_id] = state.copy(
-                power=True,
+                power=device_id not in power_off_ids,
                 mode="colour",
                 rgb=rgb,
                 brightness=brightness,

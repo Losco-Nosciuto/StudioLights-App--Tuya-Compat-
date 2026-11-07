@@ -229,12 +229,14 @@ class FakeController:
         self.calls: list[tuple[str, tuple[int, int, int], int]] = []
         self.music_calls: list[tuple[str, tuple[int, int, int], int]] = []
         self.white_calls: list[tuple[str, int]] = []
+        self.power_calls: list[tuple[str, bool]] = []
         self.music_supported = music_supported
 
     def submit_colour_frame(self, device, rgb, brightness, **kwargs):
         future: Future = Future()
         future.set_result(LightResult(device.id, device.name, True))
         self.calls.append((device.id, rgb, brightness))
+        self.power_calls.append((device.id, bool(kwargs.get("power", True))))
         if kwargs.get("white"):
             self.white_calls.append((device.id, int(kwargs.get("colortemp", 50))))
         return future
@@ -339,6 +341,38 @@ class ScreenRunnerTests(unittest.TestCase):
         runner.stop()
         self.assertTrue(controller.white_calls)
         self.assertFalse(controller.music_calls)
+
+    def test_runner_turns_off_dark_screen_and_resumes(self) -> None:
+        controller = FakeController()
+        capture = FakeCapture(Image.new("RGB", (96, 54), (10, 10, 12)))
+        runner = ScreenSyncRunner(controller)  # type: ignore[arg-type]
+        runner._capture_factory = lambda _index: capture  # type: ignore[assignment]
+        device = LightDevice("A", "a", "192.168.1.10", "0123456789abcdef", "3.3")
+        config = ScreenSyncConfig(
+            sampling_mode="zones",
+            sensor_zones=[SensorZone(x=0.0, y=0.0, w=1.0, h=1.0)],
+            smoothing=0.3,
+            fps=30,
+            brightness_min=0,
+            brightness_max=80,
+            brightness_gamma=1.2,
+            dark_off=True,
+            dark_off_threshold=5,
+        )
+        runner.start([device], config, {"a": 0})
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and ("a", False) not in controller.power_calls:
+            time.sleep(0.02)
+        self.assertIn(("a", False), controller.power_calls)
+        self.assertIn("a", runner.power_off_ids)
+
+        capture.image = Image.new("RGB", (96, 54), (240, 240, 240))
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and ("a", True) not in controller.power_calls:
+            time.sleep(0.02)
+        runner.stop()
+        self.assertIn(("a", True), controller.power_calls)
+        self.assertNotIn("a", runner.power_off_ids)
 
 
 if __name__ == "__main__":

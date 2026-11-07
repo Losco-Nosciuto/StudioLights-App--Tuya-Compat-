@@ -1,4 +1,4 @@
-# Audit tecnico — Studio Lights 1.2.4
+# Audit tecnico — Studio Lights 1.2.5
 
 **Data:** 7 novembre 2026
 **Ambiente di sviluppo:** Windows 11, Python 3.12.10, Tk 8.6
@@ -49,7 +49,7 @@ sincronizzazione tra PC, scenari fuori dalla LAN, supporto a prese/termostati.
 | Snapshot multi-luce | `Scene(type="snapshot")` + `lights` | test GUI + persistenza |
 | Flow 8 colori, fade infinito, 0.5–5 s | `flow.py`, `FlowRunner`, tab Flow | 2 test motore + test GUI start/stop |
 | Scena Flow salvabile | `Scene(type="flow")` + `FlowConfig` | round-trip + GUI |
-| Screen Sync: sensori 16:9, fps, colore | `screen_sync.py`, `ui/screen_sync.py` | 15 test unitari + GUI live |
+| Screen Sync: sensori 16:9, fps, colore | `screen_sync.py`, `ui/screen_sync.py` | 16 test unitari + GUI live |
 | Cattura monitor con mss | `ScreenCapture`, `list_monitors` | cattura reale desktop, 42 frame |
 | Elimina / sovrascrivi scena | menu card + `delete_scene` / `overwrite_scene` | codice + dialogo conferma |
 | Timeout 1.5 s, retry 1 | `LightController.__init__`, `_get_bulb` | ispezione + test offline (~1.5 s) |
@@ -162,6 +162,10 @@ Screen Sync è separato dal Flow palette ma riusa `submit_colour_frame`:
   testo bianco su nero non tiene quindi le luci accese.
 - **Anteprima**: i riquadri sono scalati per la luminosità target, così riflettono
   l’output reale e non appaiono sempre bianchi.
+- **Nero = spento**: sotto `dark_off_threshold` (default 5%) o su frame nero il runner
+  invia lo switch-off reale (`power=False`) invece di un 1–2% che molte lampadine
+  rendono comunque luminoso. Isteresi: riaccensione sopra soglia+2. Lo stato off viene
+  riportato alla UI allo stop.
 - **Smoothing**: EMA con `alpha = 1 - exp(-dt / tau)`; `tau` 0.1–3 s.
 - **Frame rate**: richiesta 5–60 fps, ma il loop attende il completamento della cattura;
   `effective_fps` misura il rate reale e la UI lo mostra. Con `mss` a 1440p il tetto è
@@ -298,17 +302,17 @@ Per questo il progetto converte esplicitamente le percentuali.
 
 ```
 python -m compileall studiolights main.py tests      → OK
-python -m unittest discover -s tests -v               → 34 test, OK
+python -m unittest discover -s tests -v               → 35 test, OK
 ruff check . --exclude .venv --select F,E9            → OK
 ```
 
-I 34 test coprono: normalizzazione versioni, clamp/serializzazione stato, validazione
+I 35 test coprono: normalizzazione versioni, clamp/serializzazione stato, validazione
 device, conversioni Kelvin, round-trip scene global/snapshot/flow, FlowConfig e
 interpolazione colori, import wizard (lista e dict), creazione template, persistenza luci
 e scene, payload atomico colore/bianco/off, decodifica stato, classificazione errori,
 matching IP, motore Flow e Screen Sync (config, sensori liberi, fasce, HUD/letterbox,
-smoothing, bianco dedicato, saturazione, curva buio, testo su sfondo scuro, runner con
-capture finta, turbo con fallback).
+smoothing, bianco dedicato, saturazione, curva buio, testo su sfondo scuro, spegnimento
+su nero e riaccensione, runner con capture finta, turbo con fallback).
 
 ### GUI
 
@@ -422,6 +426,14 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 ---
 
 ## 12. Changelog
+
+### 1.2.5 — 2026-11-07
+
+- **Nero = spento**: sotto il 5% di luminosità (o su schermo nero) le luci ricevono un
+  vero switch-off invece di restare accese al minimo. Isteresi a soglia+2 per evitare
+  lampeggi; lo stato spento viene riportato nella UI allo stop.
+- L’anteprima mostra **OFF** sulle zone sotto soglia.
+- Test: **35** (16 Screen Sync), incluso spegnimento su schermo scuro e riaccensione.
 
 ### 1.2.4 — 2026-11-07
 

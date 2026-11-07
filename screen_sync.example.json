@@ -33,6 +33,8 @@
   "turbo": false,
   "neutral_white": true,
   "neutral_threshold": 0.08,
+  "dark_off": true,
+  "dark_off_threshold": 5,
   "ignore_hud": true,
   "hold_on_black": true,
   "preset": "Realistico",

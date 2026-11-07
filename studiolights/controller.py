@@ -500,6 +500,7 @@ class LightController:
         *,
         white: bool = False,
         colortemp: int = 50,
+        power: bool = True,
     ) -> Future[LightResult]:
         """Queue one animation frame using the same atomic payload as static scenes.
 
@@ -510,10 +511,11 @@ class LightController:
 
         ``white=True`` routes near-neutral colours through the dedicated white
         LEDs with the given colour temperature, avoiding the cool/blue cast of
-        RGB-synthesised white.
+        RGB-synthesised white. ``power=False`` sends only the switch-off DP, used
+        when the screen is dark enough that dimming would still be too bright.
         """
         desired = LightState(
-            power=True,
+            power=power,
             mode="white" if white else "colour",
             brightness=brightness,
             colortemp=colortemp,

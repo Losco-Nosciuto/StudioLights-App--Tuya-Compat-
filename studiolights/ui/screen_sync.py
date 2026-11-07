@@ -889,6 +889,31 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             command=self._schedule_save,
         ).pack(side="left", padx=(20, 0))
 
+        toggles3 = ctk.CTkFrame(card, fg_color="transparent")
+        toggles3.grid(row=10, column=0, sticky="ew", padx=14, pady=(2, 4))
+        self.dark_off_var = tk.BooleanVar(value=True)
+        ctk.CTkSwitch(
+            toggles3,
+            text="Nero = spento (sotto il 5%)",
+            width=190,
+            variable=self.dark_off_var,
+            switch_width=30,
+            switch_height=16,
+            fg_color=COLORS["border_light"],
+            progress_color=COLORS["accent"],
+            button_color=COLORS["text"],
+            text_color=COLORS["muted"],
+            font=font(8),
+            command=self._schedule_save,
+        ).pack(side="left")
+        ctk.CTkLabel(
+            toggles3,
+            text="evita il minimo acceso delle lampadine",
+            font=font(8),
+            text_color=COLORS["dim"],
+            anchor="w",
+        ).pack(side="left", padx=(10, 0))
+
         ctk.CTkLabel(
             card,
             text=(
@@ -900,7 +925,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             anchor="w",
             justify="left",
             wraplength=760,
-        ).grid(row=10, column=0, sticky="w", padx=14, pady=(0, 10))
+        ).grid(row=11, column=0, sticky="w", padx=14, pady=(0, 10))
 
     def _slider_row(
         self,
@@ -988,6 +1013,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         self.black_var.set(self._config.hold_on_black)
         self.turbo_var.set(self._config.turbo)
         self.neutral_white_var.set(self._config.neutral_white)
+        self.dark_off_var.set(self._config.dark_off)
         self._update_slider_labels()
         self._sync_mode_widgets()
         self._rebuild_zone_map()
@@ -1039,6 +1065,8 @@ class ScreenSyncWindow(ctk.CTkToplevel):
             turbo=bool(self.turbo_var.get()),
             neutral_white=bool(self.neutral_white_var.get()),
             neutral_threshold=self._config.neutral_threshold,
+            dark_off=bool(self.dark_off_var.get()),
+            dark_off_threshold=self._config.dark_off_threshold,
             ignore_hud=bool(self.hud_var.get()),
             hold_on_black=bool(self.black_var.get()),
             preset=self._config.preset,
@@ -1213,8 +1241,16 @@ class ScreenSyncWindow(ctk.CTkToplevel):
                 color = f"#{dimmed[0]:02x}{dimmed[1]:02x}{dimmed[2]:02x}"
                 box.configure(fg_color=color)
                 if index < len(self._preview_labels):
+                    is_off = (
+                        self._config.dark_off
+                        and target.brightness <= self._config.dark_off_threshold
+                    )
                     self._preview_labels[index].configure(
-                        text=f"Z{index + 1} · {target.brightness}%",
+                        text=(
+                            f"Z{index + 1} · OFF"
+                            if is_off
+                            else f"Z{index + 1} · {target.brightness}%"
+                        ),
                         text_color=(
                             "#101418"
                             if factor > 0.55 and target.luma > 0.45
