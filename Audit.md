@@ -1,4 +1,4 @@
-# Audit tecnico — Studio Lights 1.3.2
+# Audit tecnico — Studio Lights 1.3.3
 
 **Data:** 7 novembre 2026
 **Ambiente di sviluppo:** Windows 11, Python 3.12.10, Tk 8.6
@@ -429,7 +429,18 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 
 ## 12. Changelog
 
-### 1.3.2 — 2026-11-07
+### 1.3.3 - 2026-11-07
+
+- **Flicker colore/bianco persistente**: rimosso del tutto il caso speciale
+  `boosted = 0.0` per saturazioni sotto 0.005. Ora la saturazione è una funzione
+  continua da 0 a 1, quindi nessuna soglia binaria da attraversare. Una zona
+  quasi neutra resta leggermente colorata e non flipa a bianco.
+- Consiglio: muovere la finestra Screen Sync su un altro monitor, perché la cattura
+  include anche l’app stessa; in alternativa mappare Studio 1 su una zona specifica
+  invece di **Globale** (che è la media di tutte le zone e può essere grigiastra su
+  schermi multicolore).
+
+### 1.3.2 - 2026-11-07
 
 - **Flicker colore/bianco**: la soglia per produrre bianco puro è passata da 0.03 a
   0.005, così una zona quasi neutra non oscilla tra colore e bianco per il rumore.
