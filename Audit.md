@@ -1,4 +1,4 @@
-# Audit tecnico — Studio Lights 1.4.0
+# Audit tecnico — Studio Lights 1.4.1
 
 **Data:** 7 novembre 2026
 **Ambiente di sviluppo:** Windows 11, Python 3.12.10, Tk 8.6
@@ -428,6 +428,15 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 ---
 
 ## 12. Changelog
+
+### 1.4.1 - 2026-11-07
+
+- **Anteprima live dei sensori**: l’editor esegue un’analisi one-shot del monitor
+  ogni 2 s e aggiorna i riquadri con i colori che i sensori vedono, senza inviare
+  nulla alle luci. L’etichetta `raw → output` mostra il campione grezzo e l’output.
+- La replica del monitor si aggiorna ora in modo affidabile (cattura sincrona ogni
+  2 s, niente thread Tkinter).
+- Test: **41** (20 Screen Sync).
 
 ### 1.4.0 - 2026-11-07
 

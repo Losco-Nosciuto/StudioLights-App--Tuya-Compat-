@@ -18,6 +18,7 @@ except Exception:
 from ..screen_sync import (
     SCREEN_PRESETS,
     MonitorInfo,
+    ScreenAnalyzer,
     ScreenSyncConfig,
     SensorZone,
     default_sensor_zones,
@@ -67,6 +68,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         self._sensor_thumb: Image.Image | None = None
         self._thumb_photo: ImageTk.PhotoImage | None = None
         self._thumb_job: str | None = None
+        self._editor_frame: Any = None
         self._build()
         self._apply_config(self._config)
         self._refresh_monitors()
@@ -1444,7 +1446,16 @@ class ScreenSyncWindow(ctk.CTkToplevel):
                     )
             except Exception:
                 LOGGER.debug("Sensor thumbnail capture failed.", exc_info=True)
+        try:
+            if self._sensor_thumb is not None:
+                analyzer = ScreenAnalyzer()
+                config = self._read_config()
+                self._editor_frame = analyzer.update(self._sensor_thumb, config, 0.1)
+        except Exception:
+            LOGGER.debug("Editor analysis failed.", exc_info=True)
+            self._editor_frame = None
         self._rebuild_zone_map()
+        self._update_preview()
         self._thumb_job = self.after(2000, self._capture_thumb_main)
 
     def _stop_thumb(self) -> None:
@@ -1477,7 +1488,11 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         self._preview_job = None
         if not self.winfo_exists():
             return
-        frame = self.app.screen_runner.last_frame
+        runner = getattr(self.app, "screen_runner", None)
+        if runner is not None and getattr(self.app, "screen_running", False):
+            frame = runner.last_frame
+        else:
+            frame = self._editor_frame
         if frame is not None:
             for index, box in enumerate(self._preview_boxes):
                 target = frame.zones[index % len(frame.zones)] if frame.zones else frame.global_target
@@ -1485,7 +1500,9 @@ class ScreenSyncWindow(ctk.CTkToplevel):
                     self._config.dark_off
                     and target.brightness <= self._config.dark_off_threshold
                 )
-                sample = target.sample_rgb if target.sample_rgb != (0, 0, 0) else target.rgb
+                sample = target.sample_rgb
+                if sample == (0, 0, 0):
+                    sample = (8, 8, 10)
                 color = f"#{sample[0]:02x}{sample[1]:02x}{sample[2]:02x}"
                 box.configure(fg_color=color)
                 if index < len(self._preview_labels):
