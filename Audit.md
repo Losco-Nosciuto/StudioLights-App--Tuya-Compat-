@@ -1,4 +1,4 @@
-# Audit tecnico — Studio Lights 1.2.5
+# Audit tecnico — Studio Lights 1.2.6
 
 **Data:** 7 novembre 2026
 **Ambiente di sviluppo:** Windows 11, Python 3.12.10, Tk 8.6
@@ -49,7 +49,7 @@ sincronizzazione tra PC, scenari fuori dalla LAN, supporto a prese/termostati.
 | Snapshot multi-luce | `Scene(type="snapshot")` + `lights` | test GUI + persistenza |
 | Flow 8 colori, fade infinito, 0.5–5 s | `flow.py`, `FlowRunner`, tab Flow | 2 test motore + test GUI start/stop |
 | Scena Flow salvabile | `Scene(type="flow")` + `FlowConfig` | round-trip + GUI |
-| Screen Sync: sensori 16:9, fps, colore | `screen_sync.py`, `ui/screen_sync.py` | 16 test unitari + GUI live |
+| Screen Sync: sensori 16:9, fps, colore | `screen_sync.py`, `ui/screen_sync.py` | 17 test unitari + GUI live |
 | Cattura monitor con mss | `ScreenCapture`, `list_monitors` | cattura reale desktop, 42 frame |
 | Elimina / sovrascrivi scena | menu card + `delete_scene` / `overwrite_scene` | codice + dialogo conferma |
 | Timeout 1.5 s, retry 1 | `LightController.__init__`, `_get_bulb` | ispezione + test offline (~1.5 s) |
@@ -158,10 +158,11 @@ Screen Sync è separato dal Flow palette ma riusa `submit_colour_frame`:
   `Luminosità minima` resta il pavimento effettivo.
 - **Testo chiaro su sfondo scuro**: oltre alla media si calcola la luminanza mediana del
   frame (a risoluzione piena) e si applica un fattore di scurimento
-  `median / mean` (clamp 0.35–1.0) alla luminanza delle zone. Una finestra piena di
-  testo bianco su nero non tiene quindi le luci accese.
-- **Anteprima**: i riquadri sono scalati per la luminosità target, così riflettono
-  l’output reale e non appaiono sempre bianchi.
+  `median / mean` (clamp 0.4–1.0) alla luminanza delle zone. La correzione si applica
+  **solo se la media del frame è sotto 0.32**, così una scena luminosa con bordi scuri
+  non viene scurita.
+- **Anteprima**: i riquadri sono scalati in modo morbido per la luminosità target
+  (`0.2 + 0.8 × brightness/100`), con nero pieno solo per le zone OFF.
 - **Nero = spento**: sotto `dark_off_threshold` (default 5%) o su frame nero il runner
   invia lo switch-off reale (`power=False`) invece di un 1–2% che molte lampadine
   rendono comunque luminoso. Isteresi: riaccensione sopra soglia+2. Lo stato off viene
@@ -302,17 +303,18 @@ Per questo il progetto converte esplicitamente le percentuali.
 
 ```
 python -m compileall studiolights main.py tests      → OK
-python -m unittest discover -s tests -v               → 35 test, OK
+python -m unittest discover -s tests -v               → 36 test, OK
 ruff check . --exclude .venv --select F,E9            → OK
 ```
 
-I 35 test coprono: normalizzazione versioni, clamp/serializzazione stato, validazione
+I 36 test coprono: normalizzazione versioni, clamp/serializzazione stato, validazione
 device, conversioni Kelvin, round-trip scene global/snapshot/flow, FlowConfig e
 interpolazione colori, import wizard (lista e dict), creazione template, persistenza luci
 e scene, payload atomico colore/bianco/off, decodifica stato, classificazione errori,
 matching IP, motore Flow e Screen Sync (config, sensori liberi, fasce, HUD/letterbox,
-smoothing, bianco dedicato, saturazione, curva buio, testo su sfondo scuro, spegnimento
-su nero e riaccensione, runner con capture finta, turbo con fallback).
+smoothing, bianco dedicato, saturazione, curva buio, testo su sfondo scuro, scene
+luminose con bordi scuri, spegnimento su nero e riaccensione, runner con capture finta,
+turbo con fallback).
 
 ### GUI
 
@@ -426,6 +428,15 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 ---
 
 ## 12. Changelog
+
+### 1.2.6 — 2026-11-07
+
+- **Nessuna scuritura sulle scene luminose**: la correzione mediana/media si applica
+  solo sotto media 0,32 e con clamp 0,4; un desktop/game luminoso con bordi scuri non
+  finisce più a 7% o OFF.
+- **Anteprima più fedele**: scalatura morbida della luminosità (0,2–1,0) invece del
+  fattore lineare che rendeva neri i riquadri già a pochi punti percentuali.
+- Test: **36** (17 Screen Sync), inclusa una scena blu luminosa con taskbar scura.
 
 ### 1.2.5 — 2026-11-07
 

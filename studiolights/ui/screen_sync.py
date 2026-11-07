@@ -1236,15 +1236,18 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         if frame is not None:
             for index, box in enumerate(self._preview_boxes):
                 target = frame.zones[index % len(frame.zones)] if frame.zones else frame.global_target
-                factor = max(0.04, min(1.0, target.brightness / 100.0))
+                is_off = (
+                    self._config.dark_off
+                    and target.brightness <= self._config.dark_off_threshold
+                )
+                if is_off:
+                    factor = 0.04
+                else:
+                    factor = 0.2 + 0.8 * min(1.0, target.brightness / 100.0)
                 dimmed = tuple(max(0, min(255, round(channel * factor))) for channel in target.rgb)
                 color = f"#{dimmed[0]:02x}{dimmed[1]:02x}{dimmed[2]:02x}"
                 box.configure(fg_color=color)
                 if index < len(self._preview_labels):
-                    is_off = (
-                        self._config.dark_off
-                        and target.brightness <= self._config.dark_off_threshold
-                    )
                     self._preview_labels[index].configure(
                         text=(
                             f"Z{index + 1} · OFF"

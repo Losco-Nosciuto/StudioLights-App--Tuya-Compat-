@@ -180,6 +180,23 @@ class ScreenAnalyzerTests(unittest.TestCase):
         target = ScreenAnalyzer().update(image, config, 1.0).zones[0]
         self.assertLessEqual(target.brightness, 8)
 
+    def test_bright_scene_with_dark_edges_is_not_dimmed(self) -> None:
+        config = ScreenSyncConfig(
+            sampling_mode="zones",
+            sensor_zones=[SensorZone(x=0.0, y=0.0, w=1.0, h=1.0)],
+            sample_grid=1,
+            smoothing=0.3,
+            brightness_min=0,
+            brightness_max=80,
+            brightness_gamma=1.2,
+        )
+        image = Image.new("RGB", (320, 180), (40, 160, 240))
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((0, 0, 320, 34), fill=(5, 8, 12))
+        target = ScreenAnalyzer().update(image, config, 1.0).zones[0]
+        self.assertGreaterEqual(target.brightness, 20)
+        self.assertGreater(target.rgb[2], target.rgb[0])
+
     def test_near_neutral_uses_white_mode(self) -> None:
         config = ScreenSyncConfig(
             sampling_mode="zones",

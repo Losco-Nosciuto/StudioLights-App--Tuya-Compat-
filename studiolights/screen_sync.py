@@ -412,10 +412,10 @@ class ScreenAnalyzer:
         frame_mean = ImageStat.Stat(gray).mean[0] / 255.0
         frame_median = ImageStat.Stat(gray_full).median[0] / 255.0
         dark_factor = 1.0
-        if frame_mean > 0.001:
-            # A dark desktop full of white text has a high mean but a low median:
-            # dim it down so it does not keep the bulbs lit.
-            dark_factor = max(0.35, min(1.0, frame_median / frame_mean))
+        if 0.001 < frame_mean < 0.32:
+            # Only correct frames that are genuinely dark: a bright desktop or
+            # game scene must not be dimmed just because it has dark corners.
+            dark_factor = max(0.4, min(1.0, frame_median / frame_mean))
         if config.sampling_mode == "zones":
             raw_zones: list[tuple[tuple[float, float, float], float]] = []
             raw_lumas: list[float] = []
