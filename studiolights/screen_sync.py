@@ -645,7 +645,9 @@ class ScreenAnalyzer:
 
         # Boost saturation with a soft curve: pale colours gain more than
         # already-saturated ones, so light yellows/creams stay recognisable.
-        if saturation <= 0.03:
+        # Only truly neutral pixels become pure white: a binary flip around
+        # 0.03 made near-neutral zones flicker between colour and white.
+        if saturation <= 0.005:
             boosted = 0.0
         else:
             boosted = min(1.0, pow(saturation, 0.85) * config.saturation)

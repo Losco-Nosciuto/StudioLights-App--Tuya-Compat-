@@ -386,7 +386,7 @@ atomici, classificazione errori, matching IP, interpolazione colori, motore Flow
 letterbox, smoothing, bianco dedicato, saturazione, curva buio, runner con capture
 finta, turbo con fallback). Non richiedono lampadine reali.
 
-Totale attuale: **39 test** (19 core + 20 Screen Sync).
+Totale attuale: **41 test** (21 core + 20 Screen Sync).
 
 ## Troubleshooting
 

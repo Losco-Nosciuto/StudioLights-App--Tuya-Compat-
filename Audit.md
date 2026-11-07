@@ -1,4 +1,4 @@
-# Audit tecnico — Studio Lights 1.3.0
+# Audit tecnico — Studio Lights 1.3.2
 
 **Data:** 7 novembre 2026
 **Ambiente di sviluppo:** Windows 11, Python 3.12.10, Tk 8.6
@@ -303,11 +303,11 @@ Per questo il progetto converte esplicitamente le percentuali.
 
 ```
 python -m compileall studiolights main.py tests      → OK
-python -m unittest discover -s tests -v               → 39 test, OK
+python -m unittest discover -s tests -v               → 41 test, OK
 ruff check . --exclude .venv --select F,E9            → OK
 ```
 
-I 39 test coprono: normalizzazione versioni, clamp/serializzazione stato, validazione
+I 41 test coprono: normalizzazione versioni, clamp/serializzazione stato, validazione
 device, conversioni Kelvin, round-trip scene global/snapshot/flow, FlowConfig e
 interpolazione colori, import wizard (lista e dict), creazione template, persistenza luci
 e scene, payload atomico colore/bianco/off, decodifica stato, classificazione errori,
@@ -428,6 +428,17 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 ---
 
 ## 12. Changelog
+
+### 1.3.2 — 2026-11-07
+
+- **Flicker colore/bianco**: la soglia per produrre bianco puro è passata da 0.03 a
+  0.005, così una zona quasi neutra non oscilla tra colore e bianco per il rumore.
+- Consiglio: muovere la finestra Screen Sync su un altro monitor, perché la cattura
+  include anche l’app stessa.
+
+### 1.3.1 — 2026-11-07
+
+- **Etichette raw → output** e soglia di correzione buio più selettiva.
 
 ### 1.3.0 — 2026-11-07
 
