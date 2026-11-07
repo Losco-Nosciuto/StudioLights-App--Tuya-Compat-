@@ -1,4 +1,4 @@
-# Audit tecnico — Studio Lights 1.2.7
+# Audit tecnico — Studio Lights 1.2.8
 
 **Data:** 7 novembre 2026
 **Ambiente di sviluppo:** Windows 11, Python 3.12.10, Tk 8.6
@@ -49,7 +49,7 @@ sincronizzazione tra PC, scenari fuori dalla LAN, supporto a prese/termostati.
 | Snapshot multi-luce | `Scene(type="snapshot")` + `lights` | test GUI + persistenza |
 | Flow 8 colori, fade infinito, 0.5–5 s | `flow.py`, `FlowRunner`, tab Flow | 2 test motore + test GUI start/stop |
 | Scena Flow salvabile | `Scene(type="flow")` + `FlowConfig` | round-trip + GUI |
-| Screen Sync: sensori 16:9, fps, colore | `screen_sync.py`, `ui/screen_sync.py` | 17 test unitari + GUI live |
+| Screen Sync: sensori 16:9, fps, colore | `screen_sync.py`, `ui/screen_sync.py` | 18 test unitari + GUI live |
 | Cattura monitor con mss | `ScreenCapture`, `list_monitors` | cattura reale desktop, 42 frame |
 | Elimina / sovrascrivi scena | menu card + `delete_scene` / `overwrite_scene` | codice + dialogo conferma |
 | Timeout 1.5 s, retry 1 | `LightController.__init__`, `_get_bulb` | ispezione + test offline (~1.5 s) |
@@ -157,13 +157,12 @@ Screen Sync è separato dal Flow palette ma riusa `submit_colour_frame`:
   diventano cupi senza spegnere anche i toni medi/bassi. `Luminosità minima` resta il
   pavimento effettivo.
 - **Testo chiaro su sfondo scuro**: oltre alla media si calcola la luminanza mediana del
-  frame (a risoluzione piena) e si applica un fattore di scurimento
-  `median / mean` (clamp 0.4–1.0) alla luminanza delle zone. La correzione si applica
-  **solo se la mediana del frame è sotto 0.22**, così una scena luminosa con bordi scuri
-  non viene scurita.
-- **Anteprima**: mostra il campione RGB grezzo (ciò che vede il sensore); l’etichetta
-  riporta l’output `%`/`OFF`. La riga di stato mostra media/mediana del frame e il
-  fattore di correzione buio.
+  frame (a risoluzione piena). La correzione `median / mean` (clamp 0.4–1.0) si applica
+  **solo se mediana < 0.22 e mediana/media < 0.45**, cioè quando il testo/HUD gonfia la
+  media. Una scena cinematografica scura ma uniforme mantiene la luminosità.
+- **Anteprima**: mostra il campione RGB grezzo (ciò che vede il sensore) e l’etichetta
+  `raw → output`, es. `Z2 · 28% → 14%` o `Z1 · 16% → OFF`. La riga di stato mostra
+  media/mediana, saturazione e fattore di correzione buio.
 - **Nero = spento**: sotto `dark_off_threshold` (default 5%) o su frame nero il runner
   invia lo switch-off reale (`power=False`) invece di un 1–2% che molte lampadine
   rendono comunque luminoso. Isteresi: riaccensione sopra soglia+2. Lo stato off viene
@@ -429,6 +428,16 @@ Smoke test reali su finestra Tk (1360×860), con screenshot verificati:
 ---
 
 ## 12. Changelog
+
+### 1.2.8 — 2026-11-07
+
+- **Correzione buio più selettiva**: si applica solo se la mediana è molto più bassa
+  della media (testo/HUD su fondo scuro), non alle scene cinematografiche scure ma
+  uniformi. Una scena scura colorata non finisce più tutta a OFF.
+- **Anteprima trasparente**: etichetta `raw → output` (es. `28% → 14%`, `16% → OFF`)
+  e riga di stato con saturazione, media/mediana e fattore.
+- Test: **37** (18 Screen Sync), inclusa una scena scura colorata che non deve essere
+  scurita ulteriormente.
 
 ### 1.2.7 — 2026-11-07
 

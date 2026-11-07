@@ -231,11 +231,11 @@ la soglia possa scendere; su schermo nero lo spegnimento scatta comunque.
 Per non farsi ingannare dai testi chiari su sfondi scuri, la luminosità usa anche la
 **luminanza mediana** del frame oltre alla media: una finestra piena di testo bianco
 su sfondo nero resta scura e non accende le luci. La correzione si applica **solo se la
-mediana del frame è sotto 0,22**, quindi una scena luminosa con bordi o taskbar scuri
-non viene scurita. L’anteprima dei sensori mostra il **colore grezzo campionato**
-(quello che vede davvero il sensore), mentre l’etichetta indica l’output (`%` o `OFF`).
-La riga di stato aggiunge **media/mediana della scena** e il fattore di correzione, per
-capire subito cosa sta vedendo la cattura.
+mediana è molto più bassa della media** (testo/HUD su fondo scuro) e la scena è
+complessivamente scura: una scena cinematografica scura ma uniforme, o un wallpaper
+luminoso con bordi scuri, non viene scurita. L’anteprima mostra il **colore grezzo
+campionato** e l’etichetta `raw → output`: per esempio `Z2 · 28% → 14%`, oppure
+`Z1 · 16% → OFF`. La riga di stato aggiunge media/mediana, saturazione e fattore buio.
 
 Per i giochi: **borderless windowed**, HDR disattivato. In fullscreen exclusive alcuni
 giochi danno frame neri; in quel caso l'app lo segnala e non invia nero alle luci.
@@ -357,7 +357,7 @@ studiolights/
   ui/colorpicker.py          picker HSV con Pillow
   ui/dialogs.py              impostazioni, editor luce, scene, palette, conferme
 tests/test_core.py           19 test senza hardware
-tests/test_screen_sync.py    17 test Screen Sync senza monitor/Tuya
+tests/test_screen_sync.py    18 test Screen Sync senza monitor/Tuya
 tools/make_icon.py           rigenera l'icona
 ```
 
@@ -373,7 +373,7 @@ atomici, classificazione errori, matching IP, interpolazione colori, motore Flow
 letterbox, smoothing, bianco dedicato, saturazione, curva buio, runner con capture
 finta, turbo con fallback). Non richiedono lampadine reali.
 
-Totale attuale: **36 test** (19 core + 17 Screen Sync).
+Totale attuale: **37 test** (19 core + 18 Screen Sync).
 
 ## Troubleshooting
 
@@ -397,7 +397,8 @@ Totale attuale: **36 test** (19 core + 17 Screen Sync).
 | Screen Sync: luci accese su schermata nera | alza **Curva buio** (es. 1.3–1.5), metti **Luminosità minima 0%** e attiva **Nero = spento**. |
 | Screen Sync: 1–2% ancora troppo luminoso | è il minimo delle lampadine: attiva **Nero = spento**, che spegne davvero sotto il 5% invece di mandare un livello quasi zero. |
 | Screen Sync: anteprima sensori sempre bianca | l'anteprima ora è scalata per la luminosità reale: se resta chiara, la zona include molto testo/pannelli chiari; usa sensori più piccoli sulle aree scure. |
-| Screen Sync: anteprima troppo scura su scena luminosa | l’anteprima mostra il campione grezzo: se è scura, la cattura sta vedendo scuro. Controlla monitor selezionato, che la finestra dell’app non copra i sensori e la riga `scena media/mediana`; sotto mediana 0,22 scatta la correzione buio. |
+| Screen Sync: anteprima troppo scura su scena luminosa | l’anteprima mostra il campione grezzo: se è scura, la cattura sta vedendo scuro. Controlla monitor selezionato, che la finestra dell’app non copra i sensori e la riga `scena media/mediana`; la correzione buio scatta solo con mediana < 0,22 e mediana/media < 0,45. |
+| Screen Sync: scena scura ma colorata tutta spenta | abbassa **Curva buio** verso 1,0–1,2: con “Nero = spento” attivo non serve più alzarla molto; la soglia OFF resta 5%. |
 | Temperatura invertita | alcuni modelli mappano 0 = freddo. È documentato come limite noto. |
 | La GUI si blocca | non dovrebbe: i comandi sono in thread. Controlla `logs/studiolights.log`. |
 | La scansione non trova nulla | UDP broadcast bloccato dal firewall o rete guest/client isolation. |

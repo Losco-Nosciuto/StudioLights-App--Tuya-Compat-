@@ -1244,11 +1244,13 @@ class ScreenSyncWindow(ctk.CTkToplevel):
                 color = f"#{sample[0]:02x}{sample[1]:02x}{sample[2]:02x}"
                 box.configure(fg_color=color)
                 if index < len(self._preview_labels):
+                    raw_pct = round(
+                        (target.sample_luma if target.sample_luma > 0 else target.luma) * 100
+                    )
                     self._preview_labels[index].configure(
                         text=(
-                            f"Z{index + 1} · OFF"
-                            if is_off
-                            else f"Z{index + 1} · {target.brightness}%"
+                            f"Z{index + 1} · {raw_pct}% → "
+                            f"{'OFF' if is_off else str(target.brightness) + '%'}"
                         ),
                         text_color=(
                             "#101418"
@@ -1261,7 +1263,7 @@ class ScreenSyncWindow(ctk.CTkToplevel):
                     f"{frame.capture_ms} ms · {frame.analysis_ms} ms · "
                     f"{self.app.screen_runner.effective_fps:.1f} fps · "
                     f"scena {frame.frame_luma:.0%}/{frame.frame_median:.0%} · "
-                    f"×{frame.dark_factor:.2f}"
+                    f"sat {frame.frame_saturation:.0%} · ×{frame.dark_factor:.2f}"
                 )
             )
             if frame.warning:

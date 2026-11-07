@@ -353,6 +353,7 @@ class ScreenFrame:
     frame_luma: float = 0.0
     frame_median: float = 0.0
     dark_factor: float = 1.0
+    frame_saturation: float = 0.0
 
 
 @dataclass
@@ -417,11 +418,17 @@ class ScreenAnalyzer:
         gray_full = image.convert("L")
         frame_mean = ImageStat.Stat(gray).mean[0] / 255.0
         frame_median = ImageStat.Stat(gray_full).median[0] / 255.0
+        frame_rgb = ImageStat.Stat(small).mean[:3]
+        _hue, frame_saturation, _value = colorsys.rgb_to_hsv(
+            *(channel / 255.0 for channel in frame_rgb)
+        )
         dark_factor = 1.0
-        if frame_mean > 0.001 and frame_median < 0.22:
-            # Only correct frames whose median is actually dark: a bright
-            # wallpaper/game with dark edges has a high median and is left alone.
-            dark_factor = max(0.4, min(1.0, frame_median / frame_mean))
+        ratio = frame_median / frame_mean if frame_mean > 0.001 else 1.0
+        if frame_mean > 0.001 and frame_median < 0.22 and ratio < 0.45:
+            # Only correct dark frames whose mean is inflated by text/HUD
+            # (median much lower than mean). A dark but smooth movie/game scene
+            # keeps its brightness.
+            dark_factor = max(0.4, ratio)
         if config.sampling_mode == "zones":
             raw_zones: list[tuple[tuple[float, float, float], float]] = []
             raw_lumas: list[float] = []
@@ -526,6 +533,7 @@ class ScreenAnalyzer:
             frame_luma=frame_mean,
             frame_median=frame_median,
             dark_factor=dark_factor,
+            frame_saturation=frame_saturation,
         )
         if black:
             frame.warning = "Schermo nero o protetto: usa borderless / disattiva HDR."

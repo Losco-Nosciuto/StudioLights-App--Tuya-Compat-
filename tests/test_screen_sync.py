@@ -197,6 +197,22 @@ class ScreenAnalyzerTests(unittest.TestCase):
         self.assertGreaterEqual(target.brightness, 20)
         self.assertGreater(target.rgb[2], target.rgb[0])
 
+    def test_dark_colourful_scene_is_not_extra_dimmed(self) -> None:
+        config = ScreenSyncConfig(
+            sampling_mode="zones",
+            sensor_zones=[SensorZone(x=0.0, y=0.0, w=1.0, h=1.0)],
+            sample_grid=1,
+            smoothing=0.3,
+            brightness_min=0,
+            brightness_max=80,
+            brightness_gamma=1.8,
+        )
+        image = Image.new("RGB", (320, 180), (92, 67, 46))
+        frame = ScreenAnalyzer().update(image, config, 1.0)
+        target = frame.zones[0]
+        self.assertEqual(frame.dark_factor, 1.0)
+        self.assertGreaterEqual(target.brightness, 8)
+
     def test_near_neutral_uses_white_mode(self) -> None:
         config = ScreenSyncConfig(
             sampling_mode="zones",
