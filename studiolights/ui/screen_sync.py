@@ -18,14 +18,22 @@ from ..screen_sync import (
     list_monitors,
 )
 from ..theme import COLORS, font, mono
+from .layout import restore_geometry
 
 LOGGER = logging.getLogger("studiolights.ui.screen_sync")
 
 
 class ScreenSyncWindow(ctk.CTkToplevel):
-    def __init__(self, master: ctk.CTkBaseClass, app: Any) -> None:
+    def __init__(
+        self,
+        master: ctk.CTkBaseClass,
+        app: Any,
+        *,
+        geometry: str | None = None,
+    ) -> None:
         super().__init__(master, fg_color=COLORS["bg"])
         self.app = app
+        self._restore_geometry = geometry
         self.title("Screen Sync — Studio Lights")
         self.geometry("900x820")
         self.minsize(780, 640)
@@ -385,6 +393,8 @@ class ScreenSyncWindow(ctk.CTkToplevel):
 
     # --------------------------------------------------------- zone geometry
     def _sampling_mode(self) -> str:
+        if not hasattr(self, "mode_menu"):
+            return "bands"
         return "zones" if self.mode_menu.get() == "Sensori liberi" else "bands"
 
     def _zone_count(self) -> int:
@@ -1392,10 +1402,15 @@ class ScreenSyncWindow(ctk.CTkToplevel):
         if not self.winfo_exists():
             return
         self.update_idletasks()
-        parent = self.app
-        x = parent.winfo_rootx() + max(0, (parent.winfo_width() - self.winfo_width()) // 2)
-        y = parent.winfo_rooty() + max(0, (parent.winfo_height() - self.winfo_height()) // 2)
-        self.geometry(f"+{max(10, x)}+{max(10, y)}")
+        if not restore_geometry(self, self._restore_geometry):
+            parent = self.app
+            x = parent.winfo_rootx() + max(
+                0, (parent.winfo_width() - self.winfo_width()) // 2
+            )
+            y = parent.winfo_rooty() + max(
+                0, (parent.winfo_height() - self.winfo_height()) // 2
+            )
+            self.geometry(f"+{max(10, x)}+{max(10, y)}")
         self.lift()
         self.focus_force()
         self._preview_job = self.after(250, self._update_preview)

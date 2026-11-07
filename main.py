@@ -34,10 +34,18 @@ def main() -> int:
     _prepare_windows()
     log = setup_logging(project_root() / "logs")
 
+    from studiolights.instance import SingleInstance
+
+    instance = SingleInstance()
+    if not instance.acquire():
+        log.info("Studio Lights è già attiva: ripristino la finestra esistente.")
+        return 0
+
     try:
         from studiolights.ui.app import StudioLightsApp
 
         app = StudioLightsApp()
+        instance.watch(app.request_restore)
         app.mainloop()
     except Exception:
         log.exception("Errore fatale all'avvio")

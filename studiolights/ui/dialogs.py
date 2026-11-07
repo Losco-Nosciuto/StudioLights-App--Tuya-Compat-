@@ -13,6 +13,7 @@ import customtkinter as ctk
 from ..models import SUPPORTED_VERSIONS, LightDevice
 from ..theme import COLORS, font, mono
 from .colorpicker import ColorPicker
+from .layout import restore_geometry
 
 LOGGER = logging.getLogger("studiolights.ui.dialogs")
 
@@ -903,9 +904,16 @@ class LightEditorDialog(BaseDialog):
 class SettingsWindow(ctk.CTkToplevel):
     """Non-modal device manager with wizard import and LAN scan."""
 
-    def __init__(self, master: ctk.CTkBaseClass, app: Any) -> None:
+    def __init__(
+        self,
+        master: ctk.CTkBaseClass,
+        app: Any,
+        *,
+        geometry: str | None = None,
+    ) -> None:
         super().__init__(master, fg_color=COLORS["bg"])
         self.app = app
+        self._restore_geometry = geometry
         self.title("Impostazioni — Studio Lights")
         self.geometry("780x700")
         self.minsize(720, 620)
@@ -928,10 +936,15 @@ class SettingsWindow(ctk.CTkToplevel):
         if not self.winfo_exists():
             return
         self.update_idletasks()
-        parent = self.app
-        x = parent.winfo_rootx() + max(0, (parent.winfo_width() - self.winfo_width()) // 2)
-        y = parent.winfo_rooty() + max(0, (parent.winfo_height() - self.winfo_height()) // 2)
-        self.geometry(f"+{max(10, x)}+{max(10, y)}")
+        if not restore_geometry(self, self._restore_geometry):
+            parent = self.app
+            x = parent.winfo_rootx() + max(
+                0, (parent.winfo_width() - self.winfo_width()) // 2
+            )
+            y = parent.winfo_rooty() + max(
+                0, (parent.winfo_height() - self.winfo_height()) // 2
+            )
+            self.geometry(f"+{max(10, x)}+{max(10, y)}")
         self.lift()
         self.focus_force()
 
@@ -951,7 +964,7 @@ class SettingsWindow(ctk.CTkToplevel):
         ).grid(row=0, column=0, sticky="w")
         ctk.CTkLabel(
             header,
-            text="Gestisci dispositivi, importa il wizard e aggiorna gli IP.",
+            text="Gestisci dispositivi, preferenze dell'interfaccia e import dal wizard.",
             font=font(11),
             text_color=COLORS["muted"],
             anchor="w",
@@ -1040,6 +1053,55 @@ class SettingsWindow(ctk.CTkToplevel):
         )
         self._action_label.grid(row=4, column=0, sticky="ew", padx=26)
 
+        ui_box = ctk.CTkFrame(
+            self,
+            fg_color=COLORS["panel"],
+            corner_radius=10,
+            border_width=1,
+            border_color=COLORS["border"],
+        )
+        ui_box.grid(row=5, column=0, sticky="ew", padx=24, pady=(4, 4))
+        ui_box.grid_columnconfigure(0, weight=1)
+        tray_supported = sys.platform == "win32"
+        ctk.CTkLabel(
+            ui_box,
+            text="INTERFACCIA",
+            font=font(9, "bold"),
+            text_color=COLORS["dim"],
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w", padx=12, pady=(8, 0))
+        ctk.CTkLabel(
+            ui_box,
+            text=(
+                "Chiudi nella tray invece di uscire.\n"
+                "L'app resta attiva accanto all'orologio; le finestre aperte e le "
+                "loro posizioni vengono salvate e ripristinate alla riapertura."
+                if tray_supported
+                else "Tray: opzione disponibile solo su Windows 10/11."
+            ),
+            font=font(9),
+            text_color=COLORS["muted"],
+            anchor="w",
+            justify="left",
+            wraplength=560,
+        ).grid(row=1, column=0, sticky="w", padx=12, pady=(1, 8))
+        self.tray_var = tk.BooleanVar(value=self.app.close_to_tray)
+        self.tray_switch = ctk.CTkSwitch(
+            ui_box,
+            text="",
+            variable=self.tray_var,
+            width=44,
+            switch_width=40,
+            switch_height=20,
+            fg_color=COLORS["border_light"],
+            progress_color=COLORS["accent"],
+            button_color=COLORS["text"],
+            button_hover_color=COLORS["text"],
+            command=self._toggle_close_to_tray,
+            state="normal" if tray_supported else "disabled",
+        )
+        self.tray_switch.grid(row=0, column=1, rowspan=2, padx=(10, 14))
+
         help_box = ctk.CTkFrame(
             self,
             fg_color=COLORS["panel_alt"],
@@ -1047,7 +1109,7 @@ class SettingsWindow(ctk.CTkToplevel):
             border_width=1,
             border_color=COLORS["border"],
         )
-        help_box.grid(row=5, column=0, sticky="ew", padx=24, pady=(8, 18))
+        help_box.grid(row=6, column=0, sticky="ew", padx=24, pady=(8, 18))
         help_box.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(
             help_box,
@@ -1285,6 +1347,19 @@ class SettingsWindow(ctk.CTkToplevel):
         self.app.clear_demo_lights()
         self.refresh()
         self._set_action("Configurazione demo rimossa.", COLORS["success"])
+
+    def _toggle_close_to_tray(self) -> None:
+        enabled = bool(self.tray_var.get())
+        self.app.set_close_to_tray(enabled)
+        if enabled:
+            self._set_action(
+                "Chiusura nella tray attiva: le finestre verranno ripristinate.",
+                COLORS["success"],
+            )
+        else:
+            self._set_action(
+                "La chiusura termina l'app normalmente.", COLORS["muted"]
+            )
 
     def close(self) -> None:
         self.app.settings_window = None

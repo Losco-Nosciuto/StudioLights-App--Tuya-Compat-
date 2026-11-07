@@ -31,6 +31,7 @@ from studiolights.models import (
     Scene,
     normalize_version,
 )
+from studiolights.settings import AppSettings, AppSettingsStore
 from studiolights.util import (
     hex_to_rgb,
     interpolate_colour,
@@ -234,6 +235,53 @@ class PersistenceTests(unittest.TestCase):
             reloaded = store.load()
             self.assertEqual(len(reloaded), len(scenes))
             self.assertEqual(reloaded[-1].name, "Nuova")
+
+
+class AppSettingsTests(unittest.TestCase):
+    def test_defaults_and_roundtrip(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = AppSettingsStore(root)
+            defaults = store.load()
+            self.assertTrue(defaults.close_to_tray)
+            self.assertEqual(defaults.window_state, {})
+
+            store.save(
+                AppSettings(
+                    close_to_tray=False,
+                    window_state={
+                        "main_geometry": "1200x800+40+20",
+                        "settings_open": True,
+                        "settings_geometry": "780x700+100+90",
+                    },
+                )
+            )
+            self.assertTrue((root / "app_settings.json").exists())
+            loaded = store.load()
+            self.assertFalse(loaded.close_to_tray)
+            self.assertEqual(loaded.window_state["main_geometry"], "1200x800+40+20")
+            self.assertTrue(loaded.window_state["settings_open"])
+
+    def test_invalid_values_fall_back_to_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "app_settings.json").write_text(
+                json.dumps(
+                    {
+                        "close_to_tray": "yes",
+                        "window_state": {"bad": [1, 2], "ok": "value"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            settings = AppSettingsStore(root).load()
+            self.assertTrue(settings.close_to_tray)
+            self.assertEqual(settings.window_state, {"ok": "value"})
+
+            (root / "app_settings.json").write_text("{not json", encoding="utf-8")
+            self.assertTrue(AppSettingsStore(root).load().close_to_tray)
+            backups = list(root.glob("app_settings.corrupt-*.json"))
+            self.assertEqual(len(backups), 1)
 
 
 class ControllerPayloadTests(unittest.TestCase):

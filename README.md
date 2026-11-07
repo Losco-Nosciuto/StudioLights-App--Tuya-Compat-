@@ -43,6 +43,9 @@ Studio Lights risolve questo con:
 - Import automatico di `devices.json` (wizard tinytuya) e import manuale dalle impostazioni.
 - Gestione luci completa: aggiunta, modifica, eliminazione, test di connessione.
 - Scansione LAN con `tinytuya.deviceScan()` per riallineare gli IP cambiati dal router.
+- **Chiusura nella tray**: opzione in Impostazioni per tenere l'app attiva accanto
+  all'orologio; le finestre aperte e le loro posizioni vengono salvate e ripristinate
+  alla riapertura (Windows).
 - Barra di stato con esito, latenza e luci offline; log rotante in `logs/`.
 
 ## Galleria

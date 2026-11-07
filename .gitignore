@@ -22,6 +22,7 @@ lights_config.json
 scenes.json
 screen_sync.json
 screen_sync_presets.json
+app_settings.json
 tinytuya.json
 tuya-raw.json
 snapshot.json

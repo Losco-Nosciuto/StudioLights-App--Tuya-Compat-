@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import queue
+import sys
 import tkinter as tk
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -29,6 +31,7 @@ from ..models import (
     utc_now_iso,
 )
 from ..screen_sync import ScreenPresetStore, ScreenSyncRunner, ScreenSyncStore
+from ..settings import AppSettingsStore
 from ..theme import COLORS, font, mono, setup_appearance
 from ..util import format_ms, hex_to_rgb, kelvin_from_temp, rgb_to_hex, temp_preview_hex
 from .colorpicker import ColorPicker
@@ -38,6 +41,7 @@ from .dialogs import (
     SceneDialog,
     SettingsWindow,
 )
+from .layout import restore_geometry, window_geometry
 from .screen_sync import ScreenSyncWindow
 from .widgets import LightRow, SceneCard
 
@@ -126,6 +130,13 @@ class StudioLightsApp(ctk.CTk):
         self.scene_store = SceneStore(self.root_dir)
         self.store.ensure_template()
 
+        self.settings_store = AppSettingsStore(self.root_dir)
+        self.app_settings = self.settings_store.load()
+        self.close_to_tray: bool = self.app_settings.close_to_tray
+        self._window_state: dict[str, Any] = dict(self.app_settings.window_state)
+        self._tray: Any | None = None
+        self._tray_events: queue.Queue[str] = queue.Queue()
+
         data = self.store.bootstrap()
         self.devices: list[LightDevice] = list(data.devices)
         self.states: dict[str, LightState] = dict(data.states)
@@ -162,11 +173,14 @@ class StudioLightsApp(ctk.CTk):
         self._update_editor_labels()
         self._update_online_chip()
         self._update_selection_ui()
+        self._restore_main_window()
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.bind("<F5>", lambda _event: self.refresh_states())
         self.bind("<Control-n>", lambda _event: self.new_scene())
         self.after(350, self._startup)
+        self.after(600, self._restore_saved_windows)
+        self.after(120, self._poll_tray_events)
 
     # =================================================================== setup
     def _setup_window_icon(self) -> None:
@@ -2189,24 +2203,30 @@ class StudioLightsApp(ctk.CTk):
         self._bulk_apply(targets, action, after_success=after)
 
     # ================================================================ settings
-    def open_settings(self) -> None:
+    def set_close_to_tray(self, enabled: bool) -> None:
+        self.close_to_tray = bool(enabled)
+        self._save_app_settings()
+
+    def open_settings(self, geometry: str | None = None) -> None:
         if self.settings_window is not None and self.settings_window.winfo_exists():
+            self.settings_window.deiconify()
             self.settings_window.lift()
             self.settings_window.focus_force()
             return
-        self.settings_window = SettingsWindow(self, self)
+        self.settings_window = SettingsWindow(self, self, geometry=geometry)
 
     # =============================================================== screen sync
     @property
     def screen_running(self) -> bool:
         return self._screen_running
 
-    def open_screen_sync(self) -> None:
+    def open_screen_sync(self, geometry: str | None = None) -> None:
         if self.screen_window is not None and self.screen_window.winfo_exists():
+            self.screen_window.deiconify()
             self.screen_window.lift()
             self.screen_window.focus_force()
             return
-        self.screen_window = ScreenSyncWindow(self, self)
+        self.screen_window = ScreenSyncWindow(self, self, geometry=geometry)
 
     def start_screen_sync(self, window: Any | None = None) -> bool:
         if self._closing or self._screen_running:
@@ -2774,8 +2794,142 @@ class StudioLightsApp(ctk.CTk):
         self.online_label.configure(text=text, text_color=color)
         self.online_dot.configure(fg_color=color)
 
+    # ======================================================== tray and session
+    def _restore_main_window(self) -> None:
+        geometry = self._window_state.get("main_geometry")
+        if isinstance(geometry, str):
+            restore_geometry(self, geometry, min_width=1140, min_height=740)
+        if self._window_state.get("main_zoomed"):
+            self.after(80, self._zoom_main)
+
+    def _zoom_main(self) -> None:
+        if self._closing:
+            return
+        try:
+            self.state("zoomed")
+        except tk.TclError:
+            pass
+
+    def _restore_saved_windows(self) -> None:
+        if self._closing:
+            return
+        if self._window_state.get("settings_open"):
+            self.open_settings(geometry=self._window_state.get("settings_geometry"))
+        if self._window_state.get("screen_sync_open"):
+            self.open_screen_sync(
+                geometry=self._window_state.get("screen_sync_geometry")
+            )
+
+    def _capture_window_state(self) -> dict[str, Any]:
+        state: dict[str, Any] = {}
+        try:
+            zoomed = self.state() == "zoomed"
+            if not zoomed:
+                state["main_geometry"] = window_geometry(self)
+            state["main_zoomed"] = zoomed
+        except tk.TclError:
+            pass
+        if self.settings_window is not None and self.settings_window.winfo_exists():
+            state["settings_open"] = True
+            state["settings_geometry"] = window_geometry(self.settings_window)
+        if self.screen_window is not None and self.screen_window.winfo_exists():
+            state["screen_sync_open"] = True
+            state["screen_sync_geometry"] = window_geometry(self.screen_window)
+        return state
+
+    def _save_app_settings(self) -> None:
+        state = self._capture_window_state()
+        self._window_state = dict(state)
+        self.app_settings.close_to_tray = self.close_to_tray
+        self.app_settings.window_state = state
+        try:
+            self.settings_store.save(self.app_settings)
+        except OSError as exc:
+            LOGGER.warning("Impossibile salvare app_settings.json: %s", exc)
+
+    def _show_tray_icon(self) -> bool:
+        if sys.platform != "win32":
+            return False
+        if self._tray is not None:
+            return True
+        from ..tray import TrayIcon
+
+        tray = TrayIcon(
+            self.root_dir / "assets" / "icon.ico",
+            on_open=lambda: self._tray_events.put("open"),
+            on_exit=lambda: self._tray_events.put("exit"),
+        )
+        if not tray.start():
+            tray.stop()
+            return False
+        self._tray = tray
+        return True
+
+    def _hide_tray_icon(self) -> None:
+        if self._tray is not None:
+            self._tray.stop()
+            self._tray = None
+
+    def _poll_tray_events(self) -> None:
+        if self._closing:
+            return
+        try:
+            while True:
+                event = self._tray_events.get_nowait()
+                if event == "open":
+                    self._restore_from_tray()
+                elif event == "exit":
+                    self._quit_app()
+        except queue.Empty:
+            pass
+        if not self._closing:
+            self.after(120, self._poll_tray_events)
+
+    def _hide_to_tray(self) -> None:
+        if not self._show_tray_icon():
+            LOGGER.warning("Icona tray non disponibile: chiusura normale.")
+            self._quit_app()
+            return
+        self._save_app_settings()
+        for window in (self.settings_window, self.screen_window):
+            if window is not None and window.winfo_exists():
+                window.withdraw()
+        self.withdraw()
+
+    def request_restore(self) -> None:
+        """Ask the Tk loop to bring the app back (tray or second launch)."""
+        self._tray_events.put("open")
+
+    def _restore_from_tray(self) -> None:
+        if self._closing:
+            return
+        self._hide_tray_icon()
+        try:
+            self.deiconify()
+            if self._window_state.get("main_zoomed"):
+                self.state("zoomed")
+            self.lift()
+            self.focus_force()
+        except tk.TclError:
+            return
+        for window in (self.settings_window, self.screen_window):
+            if window is not None and window.winfo_exists():
+                try:
+                    window.deiconify()
+                    window.lift()
+                except tk.TclError:
+                    pass
+
     # =================================================================== close
     def _on_close(self) -> None:
+        if self._closing:
+            return
+        if self.close_to_tray and sys.platform == "win32":
+            self._hide_to_tray()
+        else:
+            self._quit_app()
+
+    def _quit_app(self) -> None:
         if self._closing:
             return
         if self._screen_running:
@@ -2783,6 +2937,8 @@ class StudioLightsApp(ctk.CTk):
         if self._flow_running:
             self.stop_flow(announce=False)
         self._closing = True
+        self._hide_tray_icon()
+        self._save_app_settings()
         self._save_now()
         try:
             self.controller.shutdown()
